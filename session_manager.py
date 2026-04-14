@@ -135,7 +135,7 @@ def get_conversation(sender_id:str):
 #     return (now - last_overview_time) > timedelta(hours=24)
 
 #HÀM KIỂM TRA XEM CÓ CẦN GỬI OVERVIEW KHÔNG
-def should_send_overview(sender_id: str, hours: int = 24):
+def should_send_overview(sender_id: str, hours: int = 0.00167): #Nếu muốn test nhanh thì thay đổi thời gian ở biến int
     DB_PATH = "database.db"
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()

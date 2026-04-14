@@ -38,6 +38,23 @@ async def verify_webhook(request: Request):
 init_db()
 #---------------------------------------
 
+def get_user_name(sender_id: str):
+    """Lấy tên người dùng từ Facebook bằng PSID"""
+    url = f"https://graph.facebook.com/{sender_id}?fields=first_name,last_name&access_token={PAGE_ACCESS_TOKEN}"
+
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            user_data = response.json()
+            first_name = user_data.get('first_name', 'Unknown')
+            last_name = user_data.get('last_name', 'Unknown')
+            return f"{last_name} {first_name} "
+        else:
+            print(f"❌ Lỗi khi lấy thông tin tên khách: {response.text}")
+            return "Unknown"
+    except Exception as e:
+        print(f"❌ Không thể kết nối tới Facebook API để lấy tên khách: {e}")
+        return "Unknown"
 
 @app.post("/webhook")
 async def receive_message(request: Request):
@@ -72,6 +89,11 @@ async def receive_message(request: Request):
 
                     if sender_id and recipient_id and message_id:
                         save_conversation(sender_id, recipient_id, message_id)
+
+                    # Lấy tên người dùng
+                    # Lấy tên khách hàng từ Facebook
+                    customer_name = get_user_name(sender_id)
+                    print(f"Khách hàng: {customer_name}")
                     
                     # Chỉ xử lý nếu có text message
                     if "message" in messaging_event and "text" in messaging_event["message"]:
@@ -92,10 +114,14 @@ async def receive_message(request: Request):
         return Response(status_code=500)
 
 def send_text_message(recipient_id: str, text: str):
+
+    customer_name = get_user_name(recipient_id)
+    full_message = text.format(tag_name=customer_name)  # Gán tên vào tin nhắn
+
     url = f"https://graph.facebook.com/v19.0/me/messages?access_token={PAGE_ACCESS_TOKEN}"
     payload = {
         "recipient": {"id": recipient_id},
-        "message": {"text": text}
+        "message": {"text": full_message}
     }
     headers = {"Content-Type": "application/json"}
 
