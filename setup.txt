@@ -1,0 +1,13 @@
+
+chromadb # lưu trữ vector db
+
+langchain_community
+
+langchain_google_genai
+langgraph
+pandas
+IPython
+python-dotenv
+fastapi
+uvicorn
+requests

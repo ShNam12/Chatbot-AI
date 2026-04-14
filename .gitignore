@@ -1,0 +1,39 @@
+# --- Environment Variables ---
+.env
+.env.*
+
+# --- Virtual Environments ---
+.venv/
+venv/
+env/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# --- Project Specific Data (Tránh đẩy dữ liệu/vector db nặng lên Git) ---
+data/
+kho_du_lieu_vector/
+
+# --- IDEs / Editors ---
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- Jupyter Notebook ---
+.ipynb_checkpoints/
+
+# --- Logs / Output ---
+*.log
+
+# --- OS Specific ---
+.DS_Store
+Thumbs.db
+
+Thiết kế/
+data/ 
+kho_du_lieu_vector/
