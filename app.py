@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 import os
 load_dotenv()
 from session_manager import init_db, save_conversation, should_send_overview, mark_overview_sent
-from overview_config import OVERVIEW_NESSAGE
+from overview_config import OVERVIEW_NESSAGE, OVERVIEW_IMAGE_URL
 
 
 
@@ -137,7 +137,7 @@ def send_text_message(recipient_id: str, text: str):
         print(f"❌ Không thể kết nối tới Facebook API: {e}")
         return False
 
-
+#-------------------- HÀM GỬI TIN NHẮN VĂN BẢN (AI REPLY) ------------------
 def send_message_to_facebook(recipient_id: str, text: str):
     """
     Logic:
@@ -151,7 +151,9 @@ def send_message_to_facebook(recipient_id: str, text: str):
         if should_send_overview(recipient_id):
             print(f"📨 Chưa gửi overview trong 24h cho {recipient_id}, gửi overview trước")
 
-            overview_sent = send_text_message(recipient_id, OVERVIEW_NESSAGE)
+            overview_sent = send_text_message(recipient_id, OVERVIEW_NESSAGE) #Lệnh gửi tin nhắn overview
+
+            image_sent = send_image_message(recipient_id, OVERVIEW_IMAGE_URL) #Lệnh gửi ảnh overview
 
             if overview_sent:
                 mark_overview_sent(recipient_id)
@@ -169,6 +171,38 @@ def send_message_to_facebook(recipient_id: str, text: str):
 
     except Exception as e:
         print(f"❌ Lỗi trong send_message_to_facebook: {e}")
+
+
+#------------------- HÀM GỬI TIN NHẮN HÌNH ẢNH (OVERVIEW) ------------------
+def send_image_message(recipient_id: str, image_url: str):
+    url = f"https://graph.facebook.com/v19.0/me/messages?access_token={PAGE_ACCESS_TOKEN}"
+    payload = {
+        "recipient": {"id": recipient_id},
+        "message": {
+            "attachment": {
+                "type": "image",
+                "payload": {
+                    "url": OVERVIEW_IMAGE_URL,
+                    "is_reusable": True
+                }
+            }
+        }
+    }
+    headers = {"Content-Type": "application/json"}
+
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+        if response.status_code == 200:
+            print(f"📤 Đã gửi hình ảnh cho {recipient_id}")
+            return True
+        else:
+            print(f"❌ Lỗi từ Facebook API khi gửi hình ảnh: {response.text}")
+            return False
+    except Exception as e:
+        print(f"❌ Không thể kết nối tới Facebook API để gửi hình ảnh: {e}")
+        return False
+#-------------------- HÀM GỬI TIN NHẮN HÌNH ẢNH (OVERVIEW) ------------------       
+
 
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
