@@ -32,7 +32,7 @@ ef = ONNXMiniLM_L6_V2(preferred_providers=['CPUExecutionProvider'])
 client = chromadb.PersistentClient(path="./kho_du_lieu_vector")
 
 # 3. Lấy collection ra (BẮT BUỘC phải truyền kèm embedding_function)
-collection = client.get_collection(
+collection = client.get_or_create_collection(
     name="cauhoi_faq", 
     embedding_function=ef
 )

@@ -6,7 +6,9 @@ from dotenv import load_dotenv
 import os
 load_dotenv()
 from session_manager import init_db, save_conversation, should_send_overview, mark_overview_sent
-from overview_config import OVERVIEW_NESSAGE, OVERVIEW_IMAGE_URL
+from overview_config import OVERVIEW_NESSAGE, OVERVIEW_IMAGE_URL, OVERVIEW_VIDEO_URL, IMAGE_OR_VIDEO
+import re
+from ggsheet_service import save_to_sheet
 
 
 
@@ -37,6 +39,12 @@ async def verify_webhook(request: Request):
 #Khởi tạo database
 init_db()
 #---------------------------------------
+
+# Nhận diện SDT trong tin nhắn (nếu có) để lưu vào Google Sheet
+def extract_phone(text):
+    pattern = r'(0|\+84)[0-9]{9}'
+    match = re.search(pattern, text)
+    return match.group(0) if match else None
 
 def get_user_name(sender_id: str):
     """Lấy tên người dùng từ Facebook bằng PSID"""
@@ -100,6 +108,22 @@ async def receive_message(request: Request):
                         sender_id = messaging_event["sender"]["id"]
                         message_text = messaging_event["message"]["text"]
                         
+                        phone = extract_phone(message_text)
+
+                        if phone:
+                            print(f"📞 Phát hiện SĐT: {phone}")
+
+                            customer_name = get_user_name(sender_id)
+
+                            try:
+                                save_to_sheet(customer_name, phone, message_text)
+                                print("✅ Đã lưu vào Google Sheet")
+                            except Exception as e:
+                                print(f"❌ Lỗi lưu Google Sheet: {e}")
+
+                        # --- AI reply ---
+                        ai_reply = get_agent_response(message_text)
+                        send_message_to_facebook(sender_id, ai_reply)
                         # --- 1. ĐƯA CHO AI SUY NGHĨ ---
                         ai_reply = get_agent_response(message_text)
                         
@@ -153,7 +177,7 @@ def send_message_to_facebook(recipient_id: str, text: str):
 
             overview_sent = send_text_message(recipient_id, OVERVIEW_NESSAGE) #Lệnh gửi tin nhắn overview
 
-            image_sent = send_image_message(recipient_id, OVERVIEW_IMAGE_URL) #Lệnh gửi ảnh overview
+            media_sent = send_media(recipient_id)
 
             if overview_sent:
                 mark_overview_sent(recipient_id)
@@ -203,6 +227,45 @@ def send_image_message(recipient_id: str, image_url: str):
         return False
 #-------------------- HÀM GỬI TIN NHẮN HÌNH ẢNH (OVERVIEW) ------------------       
 
+#------------------- HÀM GỬI TIN NHẮN VIDEO (OVERVIEW) ------------------
+def send_video_message(recipient_id: str, video_url: str):
+    url = f"https://graph.facebook.com/v19.0/me/messages?access_token={PAGE_ACCESS_TOKEN}"
+    payload = {
+        "recipient": {"id": recipient_id},
+        "message": {
+            "attachment": {
+                "type": "video",
+                "payload": {
+                    "url": OVERVIEW_VIDEO_URL,
+                    "is_reusable": True
+                }
+            }
+        }
+    }
+    headers = {"Content-Type": "application/json"}
+
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+        if response.status_code == 200:
+            print(f"📤 Đã gửi video cho {recipient_id}")
+            return True
+        else:
+            print(f"❌ Lỗi từ Facebook API khi gửi video: {response.text}")
+            return False
+    except Exception as e:
+        print(f"❌ Không thể kết nối tới Facebook API để gửi video: {e}")
+        return False
+#-------------------- HÀM GỬI TIN NHẮN VIDEO (OVERVIEW) ------------------       
+
+# kiểm tra cấu hình gửi video hay hình ảnh trong overview
+def send_media(recipient_id: str):
+    if IMAGE_OR_VIDEO == "image":
+        return send_image_message(recipient_id, OVERVIEW_IMAGE_URL)
+    elif IMAGE_OR_VIDEO == "video":
+        return send_video_message(recipient_id, OVERVIEW_VIDEO_URL)
+    else:
+        print("❌ MEDIA_TYPE không hợp lệ")
+        return False
 
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
