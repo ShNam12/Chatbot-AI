@@ -48,21 +48,33 @@ def extract_phone(text):
 
 def get_user_name(sender_id: str):
     """Lấy tên người dùng từ Facebook bằng PSID"""
-    url = f"https://graph.facebook.com/{sender_id}?fields=first_name,last_name&access_token={PAGE_ACCESS_TOKEN}"
+    url = f"https://graph.facebook.com/{sender_id}?fields=first_name,last_name,name&access_token={PAGE_ACCESS_TOKEN}"
+    print(f"DEBUG: Đang lấy tên cho sender_id: {sender_id}")
 
     try:
         response = requests.get(url)
         if response.status_code == 200:
             user_data = response.json()
-            first_name = user_data.get('first_name', 'Unknown')
-            last_name = user_data.get('last_name', 'Unknown')
-            return f"{last_name} {first_name} "
+            print(f"DEBUG: Dữ liệu Facebook trả về: {user_data}")
+            
+            full_name = user_data.get('name')
+            first_name = user_data.get('first_name')
+            last_name = user_data.get('last_name')
+
+            if full_name:
+                return full_name.strip()
+            if first_name and last_name:
+                return f"{last_name} {first_name}".strip()
+                
+            return first_name or last_name or "Khách hàng"
         else:
-            print(f"❌ Lỗi khi lấy thông tin tên khách: {response.text}")
-            return "Unknown"
+            print(f"❌ Lỗi khi lấy thông tin tên khách (Status {response.status_code}): {response.text}")
+            if response.status_code == 400 and "does not exist" in response.text:
+                print("💡 GỢI Ý: ID người dùng không tồn tại hoặc App đang ở Dev Mode mà người dùng này chưa được add làm Tester.")
+            return "Khách hàng"
     except Exception as e:
         print(f"❌ Không thể kết nối tới Facebook API để lấy tên khách: {e}")
-        return "Unknown"
+        return "Khách hàng"
 
 from fastapi import BackgroundTasks
 
@@ -138,14 +150,16 @@ def process_message(body):
                     ai_reply = get_agent_response(message_text)
 
                     # Gửi lại FB
-                    send_message_to_facebook(sender_id, ai_reply)
+                    send_message_to_facebook(sender_id, ai_reply, customer_name)
 
     except Exception as e:
         print(f"❌ Lỗi process_message: {e}")
 
-def send_text_message(recipient_id: str, text: str):
-
-    customer_name = get_user_name(recipient_id)
+def send_text_message(recipient_id: str, text: str, customer_name: str = None):
+    # Nếu chưa có tên thì mới gọi API lấy tên
+    if not customer_name:
+        customer_name = get_user_name(recipient_id)
+        
     full_message = text.format(tag_name=customer_name)  # Gán tên vào tin nhắn
 
     url = f"https://graph.facebook.com/v19.0/me/messages?access_token={PAGE_ACCESS_TOKEN}"
@@ -168,7 +182,7 @@ def send_text_message(recipient_id: str, text: str):
         return False
 
 #-------------------- HÀM GỬI TIN NHẮN VĂN BẢN (AI REPLY) ------------------
-def send_message_to_facebook(recipient_id: str, text: str):
+def send_message_to_facebook(recipient_id: str, text: str, customer_name: str = None):
     """
     Logic:
     - Nếu chưa gửi overview trong 24h -> gửi overview trước
@@ -181,7 +195,7 @@ def send_message_to_facebook(recipient_id: str, text: str):
         if should_send_overview(recipient_id):
             print(f"📨 Chưa gửi overview trong 24h cho {recipient_id}, gửi overview trước")
 
-            overview_sent = send_text_message(recipient_id, OVERVIEW_NESSAGE) #Lệnh gửi tin nhắn overview
+            overview_sent = send_text_message(recipient_id, OVERVIEW_NESSAGE, customer_name) #Lệnh gửi tin nhắn overview
 
             media_sent = send_media(recipient_id)
 
@@ -194,7 +208,7 @@ def send_message_to_facebook(recipient_id: str, text: str):
             print(f"✅ Đã gửi overview trong 24h cho {recipient_id}, bỏ qua overview")
 
         # Bước 2: Gửi câu trả lời AI cho khách
-        reply_sent = send_text_message(recipient_id, text)
+        reply_sent = send_text_message(recipient_id, text, customer_name)
 
         if not reply_sent:
             print("❌ Gửi reply AI thất bại")
