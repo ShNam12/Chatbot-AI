@@ -19,6 +19,6 @@ client = gspread.authorize(creds)
 sheet = client.open(SHEET_NAME).sheet1
 
 
-def save_to_sheet(name, phone, message):
-    time_now = str(datetime.now())
-    sheet.append_row([name, phone, message, time_now])
+def save_to_sheet(name, phone, interest):
+    time_now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    sheet.append_row([time_now, name, phone, interest])
