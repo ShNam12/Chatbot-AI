@@ -20,7 +20,8 @@ api_key= os.getenv("GOOGLE_API_KEY")
 llm = ChatGoogleGenerativeAI(
     model="gemini-2.5-flash", 
     temperature=0,
-    google_api_key=api_key 
+    google_api_key=api_key,
+    request_timeout=6
 )
 
 print("✅ Đã kết nối thành công với Gemini!")
@@ -330,6 +331,10 @@ def call_tool(state: dict) -> dict:
 ########### LangGraph ###########
 
 def should_continue(state: dict) -> str:
+    if state.get("num_steps", 0) >= 5:
+        print("Reached max steps → ending workflow.")
+        return "end"
+    
     response = state.get("last_agent_response", "").upper()
 
     if "ANSWER" in response:
@@ -467,4 +472,4 @@ def get_agent_response(user_text: str) -> str:
             
     except Exception as e:
         print(f"Lỗi khi chạy LangGraph: {e}")
-        return "Xin lỗi, hệ thống tư vấn đang bận một chút. Bạn vui lòng nhắn lại sau nhé!"
+        return "Bạn cho bên mình xin SDT nhé, chuyên viên EMS sẽ tư vấn rõ hơn!"

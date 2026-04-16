@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request, Response, BackgroundTasks
 import requests
 import uvicorn
 from function_call import get_agent_response # Gọi hàm AI bạn vừa bọc
@@ -64,78 +64,84 @@ def get_user_name(sender_id: str):
         print(f"❌ Không thể kết nối tới Facebook API để lấy tên khách: {e}")
         return "Unknown"
 
+from fastapi import BackgroundTasks
+
 @app.post("/webhook")
-async def receive_message(request: Request):
+async def receive_message(request: Request, background_tasks: BackgroundTasks):
     """Nhận tin nhắn từ người dùng và phản hồi"""
     try:
         body = await request.json()
 
-        #print("=== RAW WEBHOOK ===")
-
         if body.get("object") == "page":
-            for entry in body.get("entry", []):
-                for messaging_event in entry.get("messaging", []):
-                    
-                    # Lấy thông tin tin nhắn 
+            # Đẩy toàn bộ xử lý sang background
+            background_tasks.add_task(process_message, body)
 
-                    sender_id = messaging_event.get("sender", {}).get("id")
-                    recipient_id = messaging_event.get("recipient", {}).get("id")
-                    timestamp = messaging_event.get("timestamp")
-
-                    message = messaging_event.get("message", {})
-                    message_id = message.get("mid")
-                    message_text = message.get("text")
-
-                    print("----- MESSAGE EVENT -----")
-                    #print("customer_psid =", sender_id)
-                    #print("page_id       =", recipient_id)
-                    print("message_id    =", message_id)
-                    #print("timestamp     =", timestamp)
-                    #print("text          =", message_text)
-
-                    #Lưu/ cập nhật dữ liệu trò chuyện vào DB
-
-                    if sender_id and recipient_id and message_id:
-                        save_conversation(sender_id, recipient_id, message_id)
-
-                    # Lấy tên người dùng
-                    # Lấy tên khách hàng từ Facebook
-                    customer_name = get_user_name(sender_id)
-                    print(f"Khách hàng: {customer_name}")
-                    
-                    # Chỉ xử lý nếu có text message
-                    if "message" in messaging_event and "text" in messaging_event["message"]:
-                        sender_id = messaging_event["sender"]["id"]
-                        message_text = messaging_event["message"]["text"]
-                        
-                        phone = extract_phone(message_text)
-
-                        if phone:
-                            print(f"📞 Phát hiện SĐT: {phone}")
-
-                            customer_name = get_user_name(sender_id)
-
-                            try:
-                                save_to_sheet(customer_name, phone, message_text)
-                                print("✅ Đã lưu vào Google Sheet")
-                            except Exception as e:
-                                print(f"❌ Lỗi lưu Google Sheet: {e}")
-
-                        # --- AI reply ---
-                        ai_reply = get_agent_response(message_text)
-                        send_message_to_facebook(sender_id, ai_reply)
-                        # --- 1. ĐƯA CHO AI SUY NGHĨ ---
-                        ai_reply = get_agent_response(message_text)
-                        
-                        # --- 2. GỬI TIN NHẮN TRỞ LẠI FB ---
-                        send_message_to_facebook(sender_id, ai_reply)
-                        
+            # Trả 200 NGAY LẬP TỨC
             return Response(content="EVENT_RECEIVED", status_code=200)
+
         return Response(status_code=404)
-        
+
     except Exception as e:
         print(f"Lỗi: {e}")
         return Response(status_code=500)
+    
+def process_message(body):
+    try:
+        for entry in body.get("entry", []):
+            for messaging_event in entry.get("messaging", []):
+
+                sender_id = messaging_event.get("sender", {}).get("id")
+                recipient_id = messaging_event.get("recipient", {}).get("id")
+                timestamp = messaging_event.get("timestamp")
+
+                message = messaging_event.get("message", {})
+                message_id = message.get("mid")
+                message_text = message.get("text")
+
+                print("----- MESSAGE EVENT -----")
+                print("message_id    =", message_id)
+
+                # Lưu DB
+                if sender_id and recipient_id and message_id:
+                    save_conversation(sender_id, recipient_id, message_id)
+
+                # Lấy tên user
+                customer_name = get_user_name(sender_id)
+                print(f"Khách hàng: {customer_name}")
+
+                # Chỉ xử lý text
+                if "message" in messaging_event and "text" in messaging_event["message"]:
+                    message_text = messaging_event["message"]["text"]
+
+                    # Detect interest
+                    interest = detect_interest(message_text)
+                    print(f"🎯 Interest: {interest}")
+
+                    phone = extract_phone(message_text)
+
+                    # Nếu có SĐT → lưu + cảm ơn
+                    if phone:
+                        print(f"📞 Phát hiện SĐT: {phone}")
+
+                        try:
+                            save_to_sheet(customer_name, phone, interest)
+                            print("✅ Đã lưu vào Google Sheet")
+
+                            send_thank_you_message(sender_id)
+
+                        except Exception as e:
+                            print(f"❌ Lỗi lưu Google Sheet: {e}")
+
+                        continue
+
+                    # AI reply
+                    ai_reply = get_agent_response(message_text)
+
+                    # Gửi lại FB
+                    send_message_to_facebook(sender_id, ai_reply)
+
+    except Exception as e:
+        print(f"❌ Lỗi process_message: {e}")
 
 def send_text_message(recipient_id: str, text: str):
 
@@ -269,3 +275,85 @@ def send_media(recipient_id: str):
 
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+
+
+#Hàm phát hiện sở thích của khách hàng dựa trên tin nhắn
+def detect_interest(user_text: str) -> str:
+    text = user_text.lower()
+
+    # --- EMS ---
+    if any(keyword in text for keyword in [
+        "bơi", "bể bơi", "hồ bơi", "pool"
+    ]):
+        return "bơi & bể bơi"
+
+    # --- Yoga ---
+    if any(keyword in text for keyword in [
+        "yoga", "thiền", "giãn cơ", "dẻo", "thư giãn"
+    ]):
+        return "yoga"
+
+    # --- Giảm cân ---
+    if any(keyword in text for keyword in [
+        "giảm cân", "giảm mỡ", "đốt mỡ", "ốm", "gầy", "bụng mỡ", "mỡ bụng", "eo thon"
+    ]):
+        return "giảm cân"
+
+    # --- Tăng cơ ---
+    if any(keyword in text for keyword in [
+        "tăng cơ", "lên cơ", "cơ bắp", "body", "to cơ", "6 múi"
+    ]):
+        return "tăng cơ"
+
+    # --- Gym (chung chung) ---
+    if any(keyword in text for keyword in [
+        "gym", "tập luyện", "fitness", "phòng tập"
+    ]):
+        return "gym"
+    
+    # --- Nhảy (Dance) ---
+    if any(keyword in text for keyword in [
+        "nhảy", "dancing", "dance", "rumba"
+    ]):
+        return "Dance"
+
+    # --- fallback ---
+    return "chung"
+
+def get_page_info():
+    url = f"https://graph.facebook.com/v19.0/me?fields=name,link&access_token={PAGE_ACCESS_TOKEN}"
+    
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            data = response.json()
+            return {
+                "name": data.get("name"),
+                "link": data.get("link")
+            }
+        else:
+            print("❌ Lỗi lấy page:", response.text)
+            return None
+    except Exception as e:
+        print("❌ Exception:", e)
+        return None
+
+
+def send_thank_you_message(recipient_id: str):
+    text = "Cảm ơn bạn đã để lại thông tin, chuyên viên EMS sẽ liên hệ với bạn sớm nhất có thể!"
+
+    url = f"https://graph.facebook.com/v19.0/me/messages?access_token={PAGE_ACCESS_TOKEN}"
+
+    payload = {
+        "recipient": {"id": recipient_id},
+        "message": {"text": text}
+    }
+
+    headers = {"Content-Type": "application/json"}
+
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+        return response.status_code == 200
+    except Exception as e:
+        print(f"❌ Lỗi gửi thank you: {e}")
+        return False
