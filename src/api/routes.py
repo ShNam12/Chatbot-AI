@@ -3,9 +3,10 @@ import requests
 import os
 import re
 from src.services.function_call import get_agent_response
-from src.db.session_manager import save_conversation, should_send_overview, mark_overview_sent
+from src.db.db_postgres import db_manager
 from src.services.ggsheet_service import save_to_sheet
 from src.config.overview_config import OVERVIEW_NESSAGE, IMAGE_OR_VIDEO, OVERVIEW_IMAGE_URL, OVERVIEW_VIDEO_URL
+from src.config.settings import FB_GRAPH_BASE_URL, FB_GRAPH_VERSION
 from src.utils.helpers import extract_phone, detect_interest
 
 from dotenv import load_dotenv
@@ -84,7 +85,7 @@ def process_message(body):
                 print("message_id    =", message_id)
 
                 if sender_id and recipient_id and message_id:
-                    save_conversation(sender_id, recipient_id, message_id)
+                    db_manager.save_conversation(sender_id, recipient_id, message_id)
 
                 customer_name = get_user_name(sender_id)
                 print(f"Khách hàng: {customer_name}")
@@ -116,7 +117,7 @@ def send_text_message(recipient_id: str, text: str, customer_name: str = None):
         customer_name = get_user_name(recipient_id)
         
     full_message = text.format(tag_name=customer_name)
-    url = f"https://graph.facebook.com/v19.0/me/messages?access_token={PAGE_ACCESS_TOKEN}"
+    url = f"{FB_GRAPH_BASE_URL}/me/messages?access_token={PAGE_ACCESS_TOKEN}"
     payload = {
         "messaging_type": "RESPONSE",
         "recipient": {"id": recipient_id},
@@ -138,12 +139,12 @@ def send_text_message(recipient_id: str, text: str, customer_name: str = None):
 
 def send_message_to_facebook(recipient_id: str, text: str, customer_name: str = None):
     try:
-        if should_send_overview(recipient_id):
+        if db_manager.should_send_overview(recipient_id):
             print(f"📨 Chưa gửi overview trong 24h cho {recipient_id}, gửi overview trước")
             overview_sent = send_text_message(recipient_id, OVERVIEW_NESSAGE, customer_name)
             send_media(recipient_id)
             if overview_sent:
-                mark_overview_sent(recipient_id)
+                db_manager.mark_overview_sent(recipient_id)
             else:
                 print("❌ Gửi overview thất bại, bỏ qua cập nhật thời gian")
         else:
@@ -166,7 +167,7 @@ def send_media(recipient_id: str):
         return False
 
 def send_image_message(recipient_id: str, image_url: str):
-    url = f"https://graph.facebook.com/v19.0/me/messages?access_token={PAGE_ACCESS_TOKEN}"
+    url = f"{FB_GRAPH_BASE_URL}/me/messages?access_token={PAGE_ACCESS_TOKEN}"
     payload = {
         "messaging_type": "RESPONSE",
         "recipient": {"id": recipient_id},
@@ -186,7 +187,7 @@ def send_image_message(recipient_id: str, image_url: str):
         return False
 
 def send_video_message(recipient_id: str, video_url: str):
-    url = f"https://graph.facebook.com/v19.0/me/messages?access_token={PAGE_ACCESS_TOKEN}"
+    url = f"{FB_GRAPH_BASE_URL}/me/messages?access_token={PAGE_ACCESS_TOKEN}"
     payload = {
         "messaging_type": "RESPONSE",
         "recipient": {"id": recipient_id},
@@ -207,7 +208,7 @@ def send_video_message(recipient_id: str, video_url: str):
 
 def send_thank_you_message(recipient_id: str):
     text = "Cảm ơn bạn đã để lại thông tin, chuyên viên EMS sẽ liên hệ với bạn sớm nhất có thể!"
-    url = f"https://graph.facebook.com/v19.0/me/messages?access_token={PAGE_ACCESS_TOKEN}"
+    url = f"{FB_GRAPH_BASE_URL}/me/messages?access_token={PAGE_ACCESS_TOKEN}"
     payload = {
         "messaging_type": "RESPONSE",
         "recipient": {"id": recipient_id},

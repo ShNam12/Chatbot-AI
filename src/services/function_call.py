@@ -1,5 +1,5 @@
 import json
-import chromadb
+from src.db.db_postgres import db_manager
 import pandas as pd
 from langgraph.graph import StateGraph, END
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -8,6 +8,8 @@ from math import radians, sin, cos, sqrt, atan2
 from typing import TypedDict
 import os
 from dotenv import load_dotenv
+from src.config.settings import AI_MODEL_NAME, AI_REQUEST_TIMEOUT, AI_MAX_STEPS, DEFAULT_USER_COORD, DIACHI_CSV_PATH
+from src.config.prompts import AGENT_MAIN_PROMPT, AGENT_DIACHI_PROMPT
 
 # AGENT SETUP
 print("🔑 Cài đặt hệ thống AI")
@@ -15,40 +17,33 @@ load_dotenv()
 api_key = os.getenv("GOOGLE_API_KEY")
 
 llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash", 
+    model=AI_MODEL_NAME, 
     temperature=0,
     google_api_key=api_key,
-    request_timeout=10
+    request_timeout=AI_REQUEST_TIMEOUT
 )
 
 
 print("✅ Đã kết nối thành công với Gemini!")
 
-# Khai báo đường dẫn tương đối từ gốc dự án
-BASE_DIR = os.getcwd()
-VECTOR_DB_PATH = os.path.join(BASE_DIR, "kho_du_lieu_vector")
-DIACHI_CSV_PATH = os.path.join(BASE_DIR, "data", "diachi.csv")
-
-# 1. Khai báo lại hàm Embedding
+# 1. Khai báo lại hàm Embedding (Giữ nguyên để tạo vector query)
 from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
 ef = ONNXMiniLM_L6_V2(preferred_providers=['CPUExecutionProvider'])
 
-# 2. Trỏ đường dẫn tới thư mục chứa database
-client = chromadb.PersistentClient(path=VECTOR_DB_PATH)
-
-# 3. Lấy collection ra
-collection = client.get_or_create_collection(
-    name="cauhoi_faq", 
-    embedding_function=ef
-)
-
 def retrival_data(query):
-    print("--- TOOL CALL: RETRIEVING CONTEXT ---")
-    results = collection.query(
-        query_texts=[query],
-        n_results=1,
-    )
-    context_text = "\n".join(results['documents'][0])
+    print("--- TOOL CALL: RETRIEVING CONTEXT FROM POSTGRES ---")
+    
+    # 1. Tạo embedding từ query người dùng
+    query_embedding = ef([query])[0]
+    
+    # 2. Tìm kiếm vector trong PostgreSQL
+    results = db_manager.search_faq(query_embedding, limit=1)
+    
+    if results:
+        context_text = results[0]
+    else:
+        context_text = "Không tìm thấy thông tin liên quan trong cơ sở dữ liệu."
+        
     return {"context": context_text, "source": "cauhoi"}
 
 def search_address(user_location: str = "Hanoi,Vietnam", top_n: int = 3):
@@ -67,8 +62,7 @@ def search_address(user_location: str = "Hanoi,Vietnam", top_n: int = 3):
         print(f"❌ Lỗi khi tải dữ liệu: {e}")
         return None
 
-    user_coord = {"lat": 21.0285, "lon": 105.8542} # giả lập tọa độ Hà Nội
-    user_lat, user_lon = user_coord["lat"], user_coord["lon"]
+    user_lat, user_lon = DEFAULT_USER_COORD["lat"], DEFAULT_USER_COORD["lon"]
 
     def haversine(lat1, lon1, lat2, lon2):
         lat1, lon1, lat2, lon2 = map(radians, [float(lat1), float(lon1), float(lat2), float(lon2)])
@@ -141,39 +135,19 @@ def build_tools_list(agent_name: str) -> str:
         )
     return "\n".join(tool_lines)
 
-# ĐỊNH NGHĨA AGENT PROFILES (giữ nguyên logic)
+# ĐỊNH NGHĨA AGENT PROFILES
 AGENT_PROFILES = {
     "agent_main": {
         "role": "Chuyên viên tư vấn chính về Fitness & Yoga",
-        "system_instruction": """Hướng dẫn: ...""", # Lược bớt text mẫu để tối ưu
+        "system_instruction": AGENT_MAIN_PROMPT,
         "tool_list": build_tools_list("agent_main")
     },
     "agent_diachi": {
         "role": "Chuyên gia về Địa điểm & Chi nhánh",
-        "system_instruction": """Hướng dẫn: ...""",
+        "system_instruction": AGENT_DIACHI_PROMPT,
         "tool_list": build_tools_list("agent_diachi")
     }
 }
-# Khôi phục đầy đủ system_instruction trong file thực tế
-AGENT_PROFILES["agent_main"]["system_instruction"] = """Hướng dẫn:
-                1. Luôn bắt đầu bằng THOUGHT (Suy nghĩ), sau đó quyết định chọn (ACTION và ARGUMENTS) hoặc ANSWER (Trả lời) hoặc HANDOFF (Chuyển giao).
-                2. Kiểm tra kỹ các kết quả từ công cụ trước đó (tool_observations) để xem câu trả lời đã có sẵn hay chưa.
-                3. Nếu chưa có, hãy chọn công cụ (tool) phù hợp nhất để thu thập thêm thông tin.
-                4. Vui lòng không trả lời bất cứ điều gì dựa trên kiến thức chung hoặc sự phỏng đoán khi chưa có đủ thông tin.
-                5. ARGUMENTS (Tham số) bắt buộc phải là định dạng JSON hợp lệ với các khóa (keys) nằm trong dấu ngoặc kép.
-                6. Vui lòng không thêm bất cứ nội dung nào nằm ngoài định dạng đã được chỉ định.
-                7. Không hỏi người dùng về vị trí của họ vì chúng ta đã tự động lấy được thông tin đó từ Mobile App.
-                8. Nếu câu hỏi liên quan đến TÌM ĐỊA ĐIỂM, CHI NHÁNH GẦN NHẤT, hoặc ĐỊA CHỈ PHÒNG TẬP, bạn BẮT BUỘC phải HANDOFF (Chuyển giao) cho Chuyên gia Địa điểm trước khi ANSWER. Chỉ cần phản hồi là HANDOFF:agent_diachi.
-                ---"""
-AGENT_PROFILES["agent_diachi"]["system_instruction"] = """Hướng dẫn:
-                1. Luôn bắt đầu bằng THOUGHT (Suy nghĩ), sau đó quyết định chọn ACTION (Hành động) hoặc ANSWER (Trả lời).
-                2. Kiểm tra kỹ các kết quả từ công cụ trước đó (tool_observations) để xem câu trả lời đã có sẵn hay chưa.
-                3. Nếu chưa có, hãy chọn công cụ (tool) phù hợp nhất để thu thập thêm thông tin.
-                4. Vui lòng không trả lời bất cứ điều gì dựa trên kiến thức chung hoặc sự phỏng đoán khi chưa có đủ thông tin.
-                5. ARGUMENTS (Tham số) bắt buộc phải là định dạng JSON hợp lệ với các khóa (keys) nằm trong dấu ngoặc kép.
-                6. Vui lòng không thêm bất cứ nội dung nào nằm ngoài định dạng đã được chỉ định.
-                7. Không hỏi người dùng về vị trí của họ vì chúng ta đã tự động lấy được thông tin đó từ Mobile App.
-                ---"""
 
 prompt_template = ChatPromptTemplate.from_messages([
     ("system", "Bạn là {role}"),
@@ -230,7 +204,7 @@ def call_tool(state: dict) -> dict:
     return state
 
 def should_continue(state: dict) -> str:
-    if state.get("num_steps", 0) >= 5: return "end"
+    if state.get("num_steps", 0) >= AI_MAX_STEPS: return "end"
     response = state.get("last_agent_response", "").upper()
     if "ANSWER" in response: return "end"
     if "ACTION" in response: return "continue"
