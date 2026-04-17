@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 import os
 
 # Import các thành phần nội bộ
-from src.db.session_manager import init_db
+from src.db.db_postgres import db_manager
 from src.api.routes import verify_webhook, receive_message
 
 # Load environment variables
@@ -15,7 +15,7 @@ app = FastAPI(title="Chatbot AI EMS")
 # Khởi tạo database
 @app.on_event("startup")
 async def startup_event():
-    init_db()
+    db_manager.init_db()
 
 # Đăng ký các route
 app.add_api_route("/webhook", verify_webhook, methods=["GET"])
