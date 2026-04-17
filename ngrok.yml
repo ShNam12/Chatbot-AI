@@ -1,0 +1,7 @@
+version: "2"
+authtoken: 2Wyky529XHSw1FwGTYxQZPM6f1U_4dVeCBRL99FibbYU9K31m
+tunnels:
+  test:
+    proto: http
+    addr: 0.0.0.0:8000
+    domain: wartier-elton-supercritically.ngrok-free.dev
