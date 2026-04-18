@@ -244,15 +244,21 @@ workflow_m.add_conditional_edges("agent_diachi", should_continue, {"continue": "
 workflow_m.add_conditional_edges("tools", which_agents, {"agent_main": "agent_main", "agent_diachi": "agent_diachi"})
 agentic_graph_m = workflow_m.compile()
 
-def get_agent_response(user_text: str) -> str:
+def get_agent_response(user_text: str, max_retries: int = 3) -> str:
     print(f"\n[Người dùng hỏi]: {user_text}")
     agent_state = {"query": user_text, "last_agent_response": "", "tool_obervations": [], "num_steps": 0}
-    try:
-        result = agentic_graph_m.invoke(agent_state)
-        raw_response = result.get("last_agent_response", "")
-        if "ANSWER:" in raw_response:
-            return raw_response.split("ANSWER:")[1].strip().strip('"')
-        return raw_response.strip()
-    except Exception as e:
-        print(f"Lỗi khi chạy LangGraph: {e}")
-        return "Bạn cho bên mình xin SDT nhé, chuyên viên EMS sẽ tư vấn rõ hơn!"
+    
+    import time
+    for attempt in range(max_retries):
+        try:
+            result = agentic_graph_m.invoke(agent_state)
+            raw_response = result.get("last_agent_response", "")
+            if "ANSWER:" in raw_response:
+                return raw_response.split("ANSWER:")[1].strip().strip('"')
+            return raw_response.strip()
+        except Exception as e:
+            error_str = str(e)
+            print(f"Lỗi khi chạy LangGraph: {e}")
+            break
+    
+    return "Bạn cho bên mình xin SDT nhé, chuyên viên EMS sẽ tư vấn rõ hơn!"
