@@ -2,7 +2,9 @@ from typing import List, Optional
 from datetime import datetime, timedelta
 from sqlmodel import Session, select, text
 from .database import engine
-from .models import UserSession, VectorFAQ
+from .models import UserSession, VectorFAQ    
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import cast, func
 
 def save_conversation(sender_id: str, page_id: str, message_id: str):
     """Lưu hoặc cập nhật session của người dùng"""
@@ -52,17 +54,16 @@ def mark_overview_sent(sender_id: str):
             print(f"✅ [Operations] Đã cập nhật gửi overview cho {sender_id}")
 
 def search_faq(query_embedding: List[float], limit: int = 2) -> List[str]:
-    """Tìm kiếm kiến thức bằng vector (Cosine Similarity)"""
+    """Tìm kiếm kiến thức bằng vector (Cosine Similarity) dùng pgvector ORM"""
     with Session(engine) as session:
-        # Sử dụng SQL thuần cho toán tử vector vì SQLModel chưa hỗ trợ built-in cho <=>
-        # Nhưng chúng ta vẫn dùng kết nối từ engine của SQLModel
-        query = text("""
-            SELECT content FROM vector_faq 
-            ORDER BY embedding <=> :embedding::vector 
-            LIMIT :limit
-        """)
-        results = session.execute(query, {"embedding": str(query_embedding), "limit": limit})
-        return [row[0] for row in results]
+        vec = cast(query_embedding, Vector(len(query_embedding)))
+        statement = (
+            select(VectorFAQ.content)
+            .order_by(VectorFAQ.embedding.cosine_distance(vec))
+            .limit(limit)
+        )
+        results = session.exec(statement).all()
+        return list(results)
 
 def insert_vector_faq(category: str, sub_category: str, intent: str, content: str, keywords: str, embedding: List[float]):
     """Chèn một bản ghi kiến thức mới vào database"""
