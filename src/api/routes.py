@@ -106,7 +106,9 @@ def process_message(body):
                             print(f"❌ Lỗi lưu Google Sheet: {e}")
                         continue
 
+                    send_sender_action(sender_id, "typing_on")
                     ai_reply = get_agent_response(message_text)
+                    send_sender_action(sender_id, "typing_off")  # 👈 optional (tắt typing)
                     send_message_to_facebook(sender_id, ai_reply, customer_name)
 
     except Exception as e:
@@ -223,3 +225,18 @@ def send_thank_you_message(recipient_id: str):
     except Exception as e:
         print(f"❌ Lỗi gửi thank you: {e}")
         return False
+
+
+def send_sender_action(recipient_id: str, action: str):
+    url = f"{FB_GRAPH_BASE_URL}/me/messages"
+    params = {"access_token": PAGE_ACCESS_TOKEN}
+    payload = {
+        "recipient": {"id": recipient_id},
+        "sender_action": action
+    }
+    headers = {"Content-Type": "application/json"}
+
+    try:
+        requests.post(url, params=params, json=payload, headers=headers)
+    except Exception as e:
+        print(f"❌ Lỗi sender_action: {e}")
