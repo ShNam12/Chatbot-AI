@@ -3,7 +3,7 @@ import requests
 import os
 import re
 from src.services.function_call import get_agent_response
-from src.db.db_postgres import db_manager
+from src.db.operations import save_conversation, should_send_overview, mark_overview_sent
 from src.services.ggsheet_service import save_to_sheet
 from src.config.overview_config import OVERVIEW_NESSAGE, IMAGE_OR_VIDEO, OVERVIEW_IMAGE_URL, OVERVIEW_VIDEO_URL
 from src.config.settings import FB_GRAPH_BASE_URL, FB_GRAPH_VERSION
@@ -85,7 +85,7 @@ def process_message(body):
                 print("message_id    =", message_id)
 
                 if sender_id and recipient_id and message_id:
-                    db_manager.save_conversation(sender_id, recipient_id, message_id)
+                    save_conversation(sender_id, recipient_id, message_id)
 
                 customer_name = get_user_name(sender_id)
                 print(f"Khách hàng: {customer_name}")
@@ -106,7 +106,9 @@ def process_message(body):
                             print(f"❌ Lỗi lưu Google Sheet: {e}")
                         continue
 
+                    send_sender_action(sender_id, "typing_on")
                     ai_reply = get_agent_response(message_text)
+                    send_sender_action(sender_id, "typing_off")  # 👈 optional (tắt typing)
                     send_message_to_facebook(sender_id, ai_reply, customer_name)
 
     except Exception as e:
@@ -117,16 +119,16 @@ def send_text_message(recipient_id: str, text: str, customer_name: str = None):
         customer_name = get_user_name(recipient_id)
         
     full_message = text.format(tag_name=customer_name)
-    url = f"{FB_GRAPH_BASE_URL}/me/messages?access_token={PAGE_ACCESS_TOKEN}"
+    url = f"{FB_GRAPH_BASE_URL}/me/messages"
+    params = {"access_token": PAGE_ACCESS_TOKEN}
     payload = {
-        "messaging_type": "RESPONSE",
         "recipient": {"id": recipient_id},
         "message": {"text": full_message}
     }
     headers = {"Content-Type": "application/json"}
 
     try:
-        response = requests.post(url, json=payload, headers=headers)
+        response = requests.post(url, params=params, json=payload, headers=headers)
         if response.status_code == 200:
             print(f"📤 Đã gửi tin nhắn cho {recipient_id}: {text}")
             return True
@@ -139,12 +141,12 @@ def send_text_message(recipient_id: str, text: str, customer_name: str = None):
 
 def send_message_to_facebook(recipient_id: str, text: str, customer_name: str = None):
     try:
-        if db_manager.should_send_overview(recipient_id):
+        if should_send_overview(recipient_id):
             print(f"📨 Chưa gửi overview trong 24h cho {recipient_id}, gửi overview trước")
             overview_sent = send_text_message(recipient_id, OVERVIEW_NESSAGE, customer_name)
             send_media(recipient_id)
             if overview_sent:
-                db_manager.mark_overview_sent(recipient_id)
+                mark_overview_sent(recipient_id)
             else:
                 print("❌ Gửi overview thất bại, bỏ qua cập nhật thời gian")
         else:
@@ -167,7 +169,8 @@ def send_media(recipient_id: str):
         return False
 
 def send_image_message(recipient_id: str, image_url: str):
-    url = f"{FB_GRAPH_BASE_URL}/me/messages?access_token={PAGE_ACCESS_TOKEN}"
+    url = f"{FB_GRAPH_BASE_URL}/me/messages"
+    params = {"access_token": PAGE_ACCESS_TOKEN}
     payload = {
         "messaging_type": "RESPONSE",
         "recipient": {"id": recipient_id},
@@ -180,14 +183,15 @@ def send_image_message(recipient_id: str, image_url: str):
     }
     headers = {"Content-Type": "application/json"}
     try:
-        response = requests.post(url, json=payload, headers=headers)
+        response = requests.post(url, params=params, json=payload, headers=headers)
         return response.status_code == 200
     except Exception as e:
         print(f"❌ Lỗi gửi hình ảnh: {e}")
         return False
 
 def send_video_message(recipient_id: str, video_url: str):
-    url = f"{FB_GRAPH_BASE_URL}/me/messages?access_token={PAGE_ACCESS_TOKEN}"
+    url = f"{FB_GRAPH_BASE_URL}/me/messages"
+    params = {"access_token": PAGE_ACCESS_TOKEN}
     payload = {
         "messaging_type": "RESPONSE",
         "recipient": {"id": recipient_id},
@@ -200,7 +204,7 @@ def send_video_message(recipient_id: str, video_url: str):
     }
     headers = {"Content-Type": "application/json"}
     try:
-        response = requests.post(url, json=payload, headers=headers)
+        response = requests.post(url, params=params, json=payload, headers=headers)
         return response.status_code == 200
     except Exception as e:
         print(f"❌ Lỗi gửi video: {e}")
@@ -221,3 +225,18 @@ def send_thank_you_message(recipient_id: str):
     except Exception as e:
         print(f"❌ Lỗi gửi thank you: {e}")
         return False
+
+
+def send_sender_action(recipient_id: str, action: str):
+    url = f"{FB_GRAPH_BASE_URL}/me/messages"
+    params = {"access_token": PAGE_ACCESS_TOKEN}
+    payload = {
+        "recipient": {"id": recipient_id},
+        "sender_action": action
+    }
+    headers = {"Content-Type": "application/json"}
+
+    try:
+        requests.post(url, params=params, json=payload, headers=headers)
+    except Exception as e:
+        print(f"❌ Lỗi sender_action: {e}")
