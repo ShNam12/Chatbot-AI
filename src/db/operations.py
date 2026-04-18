@@ -2,7 +2,7 @@ from typing import List, Optional
 from datetime import datetime, timedelta
 from sqlmodel import Session, select, text
 from .database import engine
-from .models import UserSession, VectorFAQ    
+from .models import UserSession, VectorFAQ, EmsBranch
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import cast, func
 
@@ -78,3 +78,44 @@ def insert_vector_faq(category: str, sub_category: str, intent: str, content: st
         )
         session.add(faq)
         session.commit()
+
+def upsert_branch(code: str, address: str, name: Optional[str] = None,
+                  district: Optional[str] = None, city: Optional[str] = None,
+                  is_active: bool = True) -> EmsBranch:
+    """Insert chi nhánh mới hoặc update nếu đã tồn tại (theo code)."""
+    with Session(engine) as session:
+        existing = session.exec(
+            select(EmsBranch).where(EmsBranch.code == code)
+        ).first()
+
+        if existing:
+            existing.address = address
+            existing.name = name or existing.name
+            existing.district = district or existing.district
+            existing.city = city or existing.city
+            existing.is_active = is_active
+            session.add(existing)
+            session.commit()
+            session.refresh(existing)
+            print(f"♻️  [Branch] Đã cập nhật chi nhánh {code}")
+            return existing
+        else:
+            branch = EmsBranch(
+                code=code, address=address, name=name,
+                district=district, city=city,
+                is_active=is_active
+            )
+            session.add(branch)
+            session.commit()
+            session.refresh(branch)
+            print(f"➕ [Branch] Đã thêm chi nhánh {code}: {address}")
+            return branch
+
+
+def get_all_branches() -> list[EmsBranch]:
+    """Lấy tất cả chi nhánh đang hoạt động."""
+    with Session(engine) as session:
+        branches = session.exec(
+            select(EmsBranch).where(EmsBranch.is_active == True)
+        ).all()
+        return list(branches)
