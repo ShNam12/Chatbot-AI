@@ -79,7 +79,7 @@ def insert_vector_faq(category: str, sub_category: str, intent: str, content: st
         session.add(faq)
         session.commit()
 
-def upsert_branch(code: str, address: str, name: Optional[str] = None,
+def upsert_branch(code: str, address: str,
                   district: Optional[str] = None, city: Optional[str] = None,
                   is_active: bool = True) -> EmsBranch:
     """Insert chi nhánh mới hoặc update nếu đã tồn tại (theo code)."""
@@ -90,7 +90,6 @@ def upsert_branch(code: str, address: str, name: Optional[str] = None,
 
         if existing:
             existing.address = address
-            existing.name = name or existing.name
             existing.district = district or existing.district
             existing.city = city or existing.city
             existing.is_active = is_active
@@ -101,7 +100,7 @@ def upsert_branch(code: str, address: str, name: Optional[str] = None,
             return existing
         else:
             branch = EmsBranch(
-                code=code, address=address, name=name,
+                code=code, address=address,
                 district=district, city=city,
                 is_active=is_active
             )

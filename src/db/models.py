@@ -30,7 +30,6 @@ class EmsBranch(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     code: str = Field(unique=True)          # CS1, CS2, ...
-    name: Optional[str] = Field(default=None)       # Tên chi nhánh (nếu có)
     address: str                             # Địa chỉ đầy đủ text
     district: Optional[str] = Field(default=None)   # Quận/Huyện
     city: Optional[str] = Field(default=None)        # Thành phố
