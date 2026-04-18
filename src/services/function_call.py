@@ -258,12 +258,6 @@ def get_agent_response(user_text: str, max_retries: int = 3) -> str:
             return raw_response.strip()
         except Exception as e:
             error_str = str(e)
-            # Retry khi Gemini báo rate limit (429)
-            if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
-                wait = 2 ** attempt  # 1s, 2s, 4s
-                print(f"⏳ Gemini rate limit, thử lại sau {wait}s (lần {attempt+1}/{max_retries})...")
-                time.sleep(wait)
-                continue
             print(f"Lỗi khi chạy LangGraph: {e}")
             break
     
