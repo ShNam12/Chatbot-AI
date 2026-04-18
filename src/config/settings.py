@@ -15,4 +15,5 @@ DEFAULT_USER_COORD = {"lat": 21.0285, "lon": 105.8542}
 
 # Path Settings
 BASE_DIR = os.getcwd()
-DIACHI_CSV_PATH = os.path.join(BASE_DIR, "data", "diachi.csv")
+#DIACHI_CSV_PATH = os.path.join(BASE_DIR, "data", "diachi.csv")
+DIACHI_CSV_PATH = "D:\\2025.2\\Thực tập\\data\\diachi.csv"
