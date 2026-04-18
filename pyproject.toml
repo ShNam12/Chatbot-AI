@@ -12,4 +12,8 @@ dependencies = [
     "langgraph>=1.1.6",
     "pandas>=3.0.2",
     "python-dotenv>=1.2.2",
+    "sqlmodel>=0.0.22",
+    "pgvector>=0.3.6",
+    "psycopg2-binary>=2.9.10",
+    "google-generativeai>=0.8.3",
 ]
