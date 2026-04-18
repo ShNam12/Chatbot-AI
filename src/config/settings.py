@@ -2,8 +2,8 @@ import os
 
 # Facebook Graph API Settings
 FB_GRAPH_VERSION = "v19.0"
-FB_GRAPH_BASE_URL = f"https://graph.facebook.com/{FB_GRAPH_VERSION}"
-FB_GRAPH_USER_PROFILE_URL = "https://graph.facebook.com/" # PSID lookup remains at root or versioned
+FB_GRAPH_BASE_URL = "https://graph.facebook.com"
+FB_GRAPH_USER_PROFILE_URL = "https://graph.facebook.com/"
 
 # AI Model Settings
 AI_MODEL_NAME = "gemini-2.5-flash"
