@@ -1,0 +1,82 @@
+import os
+import sys
+
+# Thêm thư mục gốc vào PYTHONPATH để nhận diện thư mục src
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+import pandas as pd
+from dotenv import load_dotenv
+from src.utils.embeddings import get_embeddings_model
+from src.db.database import init_db
+from src.db.operations import insert_vector_faq
+from sqlmodel import Session, text
+from src.db.database import engine
+
+load_dotenv()
+
+def embed_csv_data():
+    # 1. Khởi tạo Database (Tạo bảng nếu chưa có)
+    print("🚀 Khởi tạo Database...")
+    init_db()
+
+    # Xóa dữ liệu cũ để tránh xung đột dimension (Nếu bạn muốn nạp lại từ đầu)
+    print("🧹 Đang làm sạch dữ liệu cũ trong vector_faq...")
+    with Session(engine) as session:
+        session.execute(text("TRUNCATE TABLE vector_faq"))
+        session.commit()
+
+    # 2. Sử dụng Gemini Embeddings từ utils
+    print("🧬 Khởi tạo Gemini Embeddings qua Utils...")
+    embeddings_model = get_embeddings_model()
+
+    # 3. Đọc dữ liệu từ file master
+    file_path = "src/data/EMS_Knowledge_Master.csv"
+    if os.path.exists(file_path):
+        print(f"📖 Đang đọc file kiến thức tổng hợp: {file_path}")
+        combined_df = pd.read_csv(file_path)
+    else:
+        print(f"❌ Không tìm thấy file master: {file_path}")
+        return
+
+    if combined_df.empty:
+        print("❌ Không có dữ liệu để xử lý!")
+        return
+
+    # 4. Loại bỏ trùng lặp (chỉ bỏ những dòng giống hệt nhau hoàn toàn ở tất cả các cột)
+    combined_df = combined_df.drop_duplicates().reset_index(drop=True)
+    total_records = len(combined_df)
+    print(f"✅ Tổng số bản ghi thực tế nạp vào Database: {total_records}")
+
+    # 5. Xử lý và nạp dữ liệu
+    for index, row in combined_df.iterrows():
+        category = str(row.get('Category', ''))
+        sub_category = str(row.get('Sub_Category', ''))
+        intent = str(row.get('User_Query_Intent', ''))
+        content = str(row.get('Information_Chunk', ''))
+        keywords = str(row.get('Keywords', ''))
+
+        # Tạo chuỗi văn bản đầy đủ để AI hiểu ngữ cảnh tốt hơn
+        full_text = f"Category: {category} | Sub-Category: {sub_category} | Intent: {intent} | Content: {content} | Keywords: {keywords}"
+        
+        print(f"🔄 Đang embedding dòng {index + 1}/{total_records}...")
+        
+        try:
+            # Tạo vector từ Gemini
+            vector = embeddings_model.embed_query(full_text)
+            
+            # Lưu vào Postgres qua ORM
+            insert_vector_faq(
+                category=category,
+                sub_category=sub_category,
+                intent=intent,
+                content=content,
+                keywords=keywords,
+                embedding=vector
+            )
+        except Exception as e:
+            print(f"❌ Lỗi khi xử lý dòng {index + 1}: {e}")
+
+    print("✨ Hoàn thành nạp dữ liệu RAG vào PostgreSQL!")
+
+if __name__ == "__main__":
+    embed_csv_data()

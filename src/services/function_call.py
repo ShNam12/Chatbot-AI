@@ -1,21 +1,27 @@
 import json
-from src.db.db_postgres import db_manager
+import os
 import pandas as pd
+from typing import TypedDict
+from math import radians, sin, cos, sqrt, atan2
+from dotenv import load_dotenv
+
 from langgraph.graph import StateGraph, END
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
-from math import radians, sin, cos, sqrt, atan2
-from typing import TypedDict
-import os
-from dotenv import load_dotenv
+
+# Import các thành phần nội bộ
 from src.config.settings import AI_MODEL_NAME, AI_REQUEST_TIMEOUT, AI_MAX_STEPS, DEFAULT_USER_COORD, DIACHI_CSV_PATH
 from src.config.prompts import AGENT_MAIN_PROMPT, AGENT_DIACHI_PROMPT
+from src.db.operations import save_conversation, search_faq
+from src.utils.embeddings import get_embeddings_model
+
 
 # AGENT SETUP
 print("🔑 Cài đặt hệ thống AI")
 load_dotenv()
 api_key = os.getenv("GOOGLE_API_KEY")
 
+# Khởi tạo mô hình Chat LLM
 llm = ChatGoogleGenerativeAI(
     model=AI_MODEL_NAME, 
     temperature=0,
@@ -23,26 +29,30 @@ llm = ChatGoogleGenerativeAI(
     request_timeout=AI_REQUEST_TIMEOUT
 )
 
-
 print("✅ Đã kết nối thành công với Gemini!")
 
-# 1. Khai báo lại hàm Embedding (Giữ nguyên để tạo vector query)
-from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
-ef = ONNXMiniLM_L6_V2(preferred_providers=['CPUExecutionProvider'])
+# 1. Sử dụng Gemini Embeddings từ utils
+print("🧬 Kết nối Gemini Embeddings qua Utils")
+embeddings_model = get_embeddings_model()
 
 def retrival_data(query):
-    print("--- TOOL CALL: RETRIEVING CONTEXT FROM POSTGRES ---")
+    print("--- TOOL CALL: RETRIEVING CONTEXT FROM POSTGRES (ORM) ---")
     
-    # 1. Tạo embedding từ query người dùng
-    query_embedding = ef([query])[0]
-    
-    # 2. Tìm kiếm vector trong PostgreSQL
-    results = db_manager.search_faq(query_embedding, limit=1)
-    
-    if results:
-        context_text = results[0]
-    else:
-        context_text = "Không tìm thấy thông tin liên quan trong cơ sở dữ liệu."
+    # 1. Tạo embedding từ query người dùng qua Gemini
+    try:
+        query_embedding = embeddings_model.embed_query(query)
+        
+        # 2. Tìm kiếm vector trong PostgreSQL qua Operations
+        results = search_faq(query_embedding, limit=2) # Tăng limit để AI có nhiều context hơn
+        
+        if results:
+            context_text = "\n---\n".join(results)
+        else:
+            context_text = "Không tìm thấy thông tin liên quan trong cơ sở dữ liệu."
+            
+    except Exception as e:
+        print(f"❌ Lỗi khi thực hiện RAG: {e}")
+        context_text = "Lỗi hệ thống khi truy xuất dữ liệu."
         
     return {"context": context_text, "source": "cauhoi"}
 
@@ -60,7 +70,7 @@ def search_address(user_location: str = "Hanoi,Vietnam", top_n: int = 3):
         print("✅ Đã tải thành công dữ liệu các chi nhánh!")
     except Exception as e:
         print(f"❌ Lỗi khi tải dữ liệu: {e}")
-        return None
+        return {"context": "Lỗi truy xuất địa chỉ.", "source": "diachi"}
 
     user_lat, user_lon = DEFAULT_USER_COORD["lat"], DEFAULT_USER_COORD["lon"]
 
@@ -200,7 +210,10 @@ def call_tool(state: dict) -> dict:
         state.setdefault("tool_obervations", []).append("[Unknown tool]")
         return state
     results = tool_func(**args)
-    state.setdefault("tool_obervations", []).append(f"[{tool_name} results: {results.get('context')}]")
+    if results and isinstance(results, dict):
+        state.setdefault("tool_obervations", []).append(f"[{tool_name} results: {results.get('context')}]")
+    else:
+        state.setdefault("tool_obervations", []).append(f"[{tool_name} trả về kết quả không hợp lệ]")
     return state
 
 def should_continue(state: dict) -> str:
