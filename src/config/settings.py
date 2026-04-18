@@ -7,7 +7,7 @@ FB_GRAPH_USER_PROFILE_URL = "https://graph.facebook.com/"
 
 # AI Model Settings
 AI_MODEL_NAME = "gemini-2.5-flash"
-AI_REQUEST_TIMEOUT = 20
+AI_REQUEST_TIMEOUT = 10
 AI_MAX_STEPS = 5
 
 # Location Settings (Default Hanoi)

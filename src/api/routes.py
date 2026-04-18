@@ -7,12 +7,14 @@ from src.db.operations import save_conversation, should_send_overview, mark_over
 from src.services.ggsheet_service import save_to_sheet
 from src.config.overview_config import OVERVIEW_NESSAGE, IMAGE_OR_VIDEO, OVERVIEW_IMAGE_URL, OVERVIEW_VIDEO_URL
 from src.config.settings import FB_GRAPH_BASE_URL, FB_GRAPH_VERSION
-from src.utils.helpers import extract_phone, detect_interest
+from src.utils.helpers import extract_phone, detect_and_update_interest
 
 from dotenv import load_dotenv
 load_dotenv()
 PAGE_ACCESS_TOKEN = os.getenv("PAGE_ACCESS_TOKEN")
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
+
+user_interest_store = {}
 
 async def verify_webhook(request: Request):
     """Facebook gọi vào đây để xác minh kết nối lần đầu"""
@@ -92,21 +94,24 @@ def process_message(body):
 
                 if "message" in messaging_event and "text" in messaging_event["message"]:
                     message_text = messaging_event["message"]["text"]
-                    interest = detect_interest(message_text)
-                    print(f"🎯 Interest: {interest}")
+                    interest = detect_and_update_interest(sender_id, message_text, user_interest_store)
+                    interest_str = ", ".join(interest)
+                    print(f"🎯 Interest: {interest_str}")
                     phone = extract_phone(message_text)
 
                     if phone:
                         print(f"📞 Phát hiện SĐT: {phone}")
                         try:
-                            save_to_sheet(customer_name, phone, interest)
+                            save_to_sheet(customer_name, phone, interest_str)
                             print("✅ Đã lưu vào Google Sheet")
                             send_thank_you_message(sender_id)
                         except Exception as e:
                             print(f"❌ Lỗi lưu Google Sheet: {e}")
                         continue
 
+                    send_sender_action(sender_id, "typing_on")
                     ai_reply = get_agent_response(message_text)
+                    send_sender_action(sender_id, "typing_off")  # 👈 optional (tắt typing)
                     send_message_to_facebook(sender_id, ai_reply, customer_name)
 
     except Exception as e:
@@ -155,6 +160,7 @@ def send_message_to_facebook(recipient_id: str, text: str, customer_name: str = 
             print("❌ Gửi reply AI thất bại")
 
     except Exception as e:
+        print(type(e))
         print(f"❌ Lỗi trong send_message_to_facebook: {e}")
 
 def send_media(recipient_id: str):
@@ -223,3 +229,18 @@ def send_thank_you_message(recipient_id: str):
     except Exception as e:
         print(f"❌ Lỗi gửi thank you: {e}")
         return False
+
+
+def send_sender_action(recipient_id: str, action: str):
+    url = f"{FB_GRAPH_BASE_URL}/me/messages"
+    params = {"access_token": PAGE_ACCESS_TOKEN}
+    payload = {
+        "recipient": {"id": recipient_id},
+        "sender_action": action
+    }
+    headers = {"Content-Type": "application/json"}
+
+    try:
+        requests.post(url, params=params, json=payload, headers=headers)
+    except Exception as e:
+        print(f"❌ Lỗi sender_action: {e}")

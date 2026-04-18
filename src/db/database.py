@@ -48,6 +48,9 @@ def init_db():
                     print(f"  ➕ Đã thêm cột '{col.name}' vào bảng '{table_name}'")
         conn.commit()
 
+    # pgvector HNSW/IVFFLAT chỉ hỗ trợ tối đa 2000 dims, embedding 3072 dims → dùng sequential scan
+    # Sequential scan đủ nhanh cho dataset FAQ vừa nhỏ (<10k rows)
+
     print("✅ Database initialized successfully")
 
 def get_session():
