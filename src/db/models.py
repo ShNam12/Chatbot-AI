@@ -11,6 +11,7 @@ class UserSession(SQLModel, table=True):
     last_overview_sent_time: Optional[datetime] = Field(default=None)
     page_id: Optional[str] = Field(default=None)
     message_id: Optional[str] = Field(default=None)
+    address: Optional[str] = Field(default=None)
 
 class VectorFAQ(SQLModel, table=True):
     __tablename__ = "vector_faq"
