@@ -1,9 +1,3 @@
-"""
-Script seed dữ liệu chi nhánh EMS từ chinhanh.txt vào PostgreSQL.
-lat/lon để None — sẽ geocode sau bằng hàm riêng.
-
-Chạy: python scripts/seed_branches.py
-"""
 import sys
 import os
 import re
@@ -66,11 +60,9 @@ def seed():
             address=b["address"],
             district=b["district"],
             city=b["city"],
-            # latitude, longitude để None — geocode sau
         )
 
     print(f"\n✅ Đã seed {len(branches)} chi nhánh vào bảng ems_branch")
-    print("💡 Chạy scripts/geocode_branches.py để cập nhật tọa độ lat/lon")
 
 
 if __name__ == "__main__":
