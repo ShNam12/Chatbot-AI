@@ -1,8 +1,5 @@
-
-chromadb # lưu trữ vector db
-
+chromadb
 langchain_community
-
 langchain_google_genai
 langgraph
 pandas
@@ -11,3 +8,8 @@ python-dotenv
 fastapi
 uvicorn
 requests
+sqlmodel
+pgvector
+psycopg2-binary
+google-generativeai
+geopy>=2.4.1

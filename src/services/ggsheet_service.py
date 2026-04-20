@@ -28,4 +28,5 @@ def save_to_sheet(name, phone, interest):
         return True
     except Exception as e:
         print(f"❌ Lỗi ghi vào Google Sheet: {e}")
+        print(type(e), e)
         return False

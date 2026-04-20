@@ -3,15 +3,24 @@ import requests
 import os
 import re
 from src.services.function_call import get_agent_response
-from src.db.session_manager import save_conversation, should_send_overview, mark_overview_sent
+# Đã gộp imports từ cả 2 file
+from src.db.operations import (
+    save_conversation, should_send_overview, mark_overview_sent, 
+    save_user_message, save_bot_message, get_conversation_context, 
+    update_last_bot_message_time
+)
 from src.services.ggsheet_service import save_to_sheet
 from src.config.overview_config import OVERVIEW_NESSAGE, IMAGE_OR_VIDEO, OVERVIEW_IMAGE_URL, OVERVIEW_VIDEO_URL
-from src.utils.helpers import extract_phone, detect_interest
+from src.config.settings import FB_GRAPH_BASE_URL, FB_GRAPH_VERSION
+from src.services.location_memory import handle_location_memory # Module location từ file 2
+from src.utils.helpers import extract_phone, detect_and_update_interest
 
 from dotenv import load_dotenv
 load_dotenv()
 PAGE_ACCESS_TOKEN = os.getenv("PAGE_ACCESS_TOKEN")
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
+
+user_interest_store = {}
 
 async def verify_webhook(request: Request):
     """Facebook gọi vào đây để xác minh kết nối lần đầu"""
@@ -91,22 +100,70 @@ def process_message(body):
 
                 if "message" in messaging_event and "text" in messaging_event["message"]:
                     message_text = messaging_event["message"]["text"]
-                    interest = detect_interest(message_text)
-                    print(f"🎯 Interest: {interest}")
+                    interest = detect_and_update_interest(sender_id, message_text, user_interest_store)
+                    interest_str = ", ".join(interest)
+                    print(f"🎯 Interest: {interest_str}")
                     phone = extract_phone(message_text)
+
+                    # 💾 SAVE USER MESSAGE TO DATABASE
+                    try:
+                        save_user_message(
+                            sender_id=sender_id,
+                            sender_name=customer_name,
+                            message_text=message_text,
+                            message_id=message_id,
+                            page_id=recipient_id,
+                            interest=interest_str if interest else None,
+                            phone=phone
+                        )
+                        print(f"✅ [ChatHistory] Đã lưu user message")
+                    except Exception as e:
+                        print(f"❌ [ChatHistory] Lỗi lưu user message: {e}")
 
                     if phone:
                         print(f"📞 Phát hiện SĐT: {phone}")
                         try:
-                            save_to_sheet(customer_name, phone, interest)
+                            save_to_sheet(customer_name, phone, interest_str)
                             print("✅ Đã lưu vào Google Sheet")
                             send_thank_you_message(sender_id)
                         except Exception as e:
                             print(f"❌ Lỗi lưu Google Sheet: {e}")
                         continue
 
-                    ai_reply = get_agent_response(message_text)
+                    send_sender_action(sender_id, "typing_on")
+
+                    # 📍 Ghi nhớ vị trí (Từ File 2)
+                    try:
+                        location_result = handle_location_memory(sender_id, message_text)
+                        print(f"[Location memory] {location_result}")
+                    except Exception as e:
+                        print(f"[Location memory] Bỏ qua do lỗi: {e}")
+                    
+                    # 🧠 Lấy context lịch sử chat để AI hiểu được hội thoại (Từ File 1)
+                    conversation_context = get_conversation_context(sender_id, max_messages=8)
+                    
+                    # 🤖 Gọi AI với context (Gộp parameter của cả 2 file: sender_id và user_context)
+                    ai_reply = get_agent_response(message_text, sender_id=sender_id, user_context=conversation_context)
+                    
+                    send_sender_action(sender_id, "typing_off")
+                    
+                    # 💾 SAVE BOT MESSAGE TO DATABASE (Từ File 1)
+                    try:
+                        save_bot_message(
+                            sender_id=sender_id,
+                            response_text=ai_reply,
+                            category=None,
+                            intent=interest_str if interest else None,
+                            tool_used="retrival_data" 
+                        )
+                        print(f"✅ [ChatHistory] Đã lưu bot message")
+                    except Exception as e:
+                        print(f"❌ [ChatHistory] Lỗi lưu bot message: {e}")
+                    
                     send_message_to_facebook(sender_id, ai_reply, customer_name)
+
+                    # Update last bot message time
+                    update_last_bot_message_time(sender_id)
 
     except Exception as e:
         print(f"❌ Lỗi process_message: {e}")
@@ -116,16 +173,16 @@ def send_text_message(recipient_id: str, text: str, customer_name: str = None):
         customer_name = get_user_name(recipient_id)
         
     full_message = text.format(tag_name=customer_name)
-    url = f"https://graph.facebook.com/v19.0/me/messages?access_token={PAGE_ACCESS_TOKEN}"
+    url = f"{FB_GRAPH_BASE_URL}/me/messages"
+    params = {"access_token": PAGE_ACCESS_TOKEN}
     payload = {
-        "messaging_type": "RESPONSE",
         "recipient": {"id": recipient_id},
         "message": {"text": full_message}
     }
     headers = {"Content-Type": "application/json"}
 
     try:
-        response = requests.post(url, json=payload, headers=headers)
+        response = requests.post(url, params=params, json=payload, headers=headers)
         if response.status_code == 200:
             print(f"📤 Đã gửi tin nhắn cho {recipient_id}: {text}")
             return True
@@ -150,10 +207,15 @@ def send_message_to_facebook(recipient_id: str, text: str, customer_name: str = 
             print(f"✅ Đã gửi overview trong 24h cho {recipient_id}, bỏ qua overview")
 
         reply_sent = send_text_message(recipient_id, text, customer_name)
-        if not reply_sent:
+        
+        # Đảm bảo record update bot time chạy đúng ở đây nếu reply sent (Từ File 1)
+        if reply_sent:
+            update_last_bot_message_time(recipient_id)
+        else:
             print("❌ Gửi reply AI thất bại")
 
     except Exception as e:
+        print(type(e))
         print(f"❌ Lỗi trong send_message_to_facebook: {e}")
 
 def send_media(recipient_id: str):
@@ -166,7 +228,8 @@ def send_media(recipient_id: str):
         return False
 
 def send_image_message(recipient_id: str, image_url: str):
-    url = f"https://graph.facebook.com/v19.0/me/messages?access_token={PAGE_ACCESS_TOKEN}"
+    url = f"{FB_GRAPH_BASE_URL}/me/messages"
+    params = {"access_token": PAGE_ACCESS_TOKEN}
     payload = {
         "messaging_type": "RESPONSE",
         "recipient": {"id": recipient_id},
@@ -179,14 +242,15 @@ def send_image_message(recipient_id: str, image_url: str):
     }
     headers = {"Content-Type": "application/json"}
     try:
-        response = requests.post(url, json=payload, headers=headers)
+        response = requests.post(url, params=params, json=payload, headers=headers)
         return response.status_code == 200
     except Exception as e:
         print(f"❌ Lỗi gửi hình ảnh: {e}")
         return False
 
 def send_video_message(recipient_id: str, video_url: str):
-    url = f"https://graph.facebook.com/v19.0/me/messages?access_token={PAGE_ACCESS_TOKEN}"
+    url = f"{FB_GRAPH_BASE_URL}/me/messages"
+    params = {"access_token": PAGE_ACCESS_TOKEN}
     payload = {
         "messaging_type": "RESPONSE",
         "recipient": {"id": recipient_id},
@@ -199,7 +263,7 @@ def send_video_message(recipient_id: str, video_url: str):
     }
     headers = {"Content-Type": "application/json"}
     try:
-        response = requests.post(url, json=payload, headers=headers)
+        response = requests.post(url, params=params, json=payload, headers=headers)
         return response.status_code == 200
     except Exception as e:
         print(f"❌ Lỗi gửi video: {e}")
@@ -207,7 +271,7 @@ def send_video_message(recipient_id: str, video_url: str):
 
 def send_thank_you_message(recipient_id: str):
     text = "Cảm ơn bạn đã để lại thông tin, chuyên viên EMS sẽ liên hệ với bạn sớm nhất có thể!"
-    url = f"https://graph.facebook.com/v19.0/me/messages?access_token={PAGE_ACCESS_TOKEN}"
+    url = f"{FB_GRAPH_BASE_URL}/me/messages?access_token={PAGE_ACCESS_TOKEN}"
     payload = {
         "messaging_type": "RESPONSE",
         "recipient": {"id": recipient_id},
@@ -220,3 +284,18 @@ def send_thank_you_message(recipient_id: str):
     except Exception as e:
         print(f"❌ Lỗi gửi thank you: {e}")
         return False
+
+
+def send_sender_action(recipient_id: str, action: str):
+    url = f"{FB_GRAPH_BASE_URL}/me/messages"
+    params = {"access_token": PAGE_ACCESS_TOKEN}
+    payload = {
+        "recipient": {"id": recipient_id},
+        "sender_action": action
+    }
+    headers = {"Content-Type": "application/json"}
+
+    try:
+        requests.post(url, params=params, json=payload, headers=headers)
+    except Exception as e:
+        print(f"❌ Lỗi sender_action: {e}")

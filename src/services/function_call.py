@@ -1,93 +1,60 @@
 import json
-import chromadb
-import pandas as pd
+import os
+import re
+from typing import TypedDict
+from dotenv import load_dotenv
+
 from langgraph.graph import StateGraph, END
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
-from math import radians, sin, cos, sqrt, atan2
-from typing import TypedDict
-import os
-from dotenv import load_dotenv
+
+# Import các thành phần nội bộ
+from src.config.settings import AI_MODEL_NAME, AI_REQUEST_TIMEOUT, AI_MAX_STEPS
+from src.config.prompts import AGENT_MAIN_PROMPT, AGENT_DIACHI_PROMPT
+from src.db.operations import save_conversation, search_faq
+from src.utils.embeddings import get_embeddings_model
+from src.services.search_address import search_address # Sử dụng module search_address đã được tách ra
+
 
 # AGENT SETUP
 print("🔑 Cài đặt hệ thống AI")
 load_dotenv()
 api_key = os.getenv("GOOGLE_API_KEY")
 
+# Khởi tạo mô hình Chat LLM
 llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash", 
+    model=AI_MODEL_NAME, 
     temperature=0,
     google_api_key=api_key,
-    request_timeout=10
+    request_timeout=AI_REQUEST_TIMEOUT
 )
-
 
 print("✅ Đã kết nối thành công với Gemini!")
 
-# Khai báo đường dẫn tương đối từ gốc dự án
-BASE_DIR = os.getcwd()
-VECTOR_DB_PATH = os.path.join(BASE_DIR, "kho_du_lieu_vector")
-DIACHI_CSV_PATH = os.path.join(BASE_DIR, "data", "diachi.csv")
-
-# 1. Khai báo lại hàm Embedding
-from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
-ef = ONNXMiniLM_L6_V2(preferred_providers=['CPUExecutionProvider'])
-
-# 2. Trỏ đường dẫn tới thư mục chứa database
-client = chromadb.PersistentClient(path=VECTOR_DB_PATH)
-
-# 3. Lấy collection ra
-collection = client.get_or_create_collection(
-    name="cauhoi_faq", 
-    embedding_function=ef
-)
+# 1. Sử dụng Gemini Embeddings từ utils
+print("🧬 Kết nối Gemini Embeddings qua Utils")
+embeddings_model = get_embeddings_model()
 
 def retrival_data(query):
-    print("--- TOOL CALL: RETRIEVING CONTEXT ---")
-    results = collection.query(
-        query_texts=[query],
-        n_results=1,
-    )
-    context_text = "\n".join(results['documents'][0])
-    return {"context": context_text, "source": "cauhoi"}
-
-def search_address(user_location: str = "Hanoi,Vietnam", top_n: int = 3):
-    """ Tìm kiếm các địa chỉ gần người cần tư vấn nhất"""
-    print("--- TOOL CALL: SEARCHING ADDRESS ---")
-
-    try: 
-        if not os.path.exists(DIACHI_CSV_PATH):
-            print(f"⚠️ Không tìm thấy file dữ liệu tại {DIACHI_CSV_PATH}")
-            # Fallback nếu không có file CSV
-            return {"context": "Hiện tại không có thông tin chi nhánh.", "source": "diachi"}
-            
-        df_br = pd.read_csv(DIACHI_CSV_PATH)
-        print("✅ Đã tải thành công dữ liệu các chi nhánh!")
-    except Exception as e:
-        print(f"❌ Lỗi khi tải dữ liệu: {e}")
-        return None
-
-    user_coord = {"lat": 21.0285, "lon": 105.8542} # giả lập tọa độ Hà Nội
-    user_lat, user_lon = user_coord["lat"], user_coord["lon"]
-
-    def haversine(lat1, lon1, lat2, lon2):
-        lat1, lon1, lat2, lon2 = map(radians, [float(lat1), float(lon1), float(lat2), float(lon2)])
-        dlon = lon2 - lon1
-        dlat = lat2 - lat1
-        a = sin(dlat/2)**2 + cos(lat1)*cos(lat2)*sin(dlon/2)**2
-        c = 2 * atan2(sqrt(a), sqrt(1-a))
-        return 6371 * c 
-
-    filtered_df = df_br.copy()
-    filtered_df['distance_km'] = filtered_df.apply(
-        lambda row: haversine(user_lat, user_lon, row['latitude'], row['longitude']), axis=1
-    )
-
-    nearest = filtered_df.sort_values('distance_km').head(top_n)
-    nearest["distance_km"] = nearest["distance_km"].round(2)
-    results = nearest[['branch_name', 'branch_address', 'distance_km']].to_dict(orient='records')
+    print("--- TOOL CALL: RETRIEVING CONTEXT FROM POSTGRES (ORM) ---")
     
-    return {"context": results, "source": "diachi"}
+    # 1. Tạo embedding từ query người dùng qua Gemini
+    try:
+        query_embedding = embeddings_model.embed_query(query)
+        
+        # 2. Tìm kiếm vector trong PostgreSQL qua Operations
+        results = search_faq(query_embedding, limit=2) # Tăng limit để AI có nhiều context hơn
+        
+        if results:
+            context_text = "\n---\n".join(results)
+        else:
+            context_text = "Không tìm thấy thông tin liên quan trong cơ sở dữ liệu."
+            
+    except Exception as e:
+        print(f"❌ Lỗi khi thực hiện RAG: {e}")
+        context_text = "Lỗi hệ thống khi truy xuất dữ liệu."
+        
+    return {"context": context_text, "source": "cauhoi"}
 
 TOOL_MAPPING = {
     "retrival_data": retrival_data,
@@ -111,19 +78,23 @@ AGENT_TOOLS_LIST ={
             }
         }
     ],
+
     "agent_diachi": [
         {
             "name": "search_address",
-            "description": "Tìm kiếm địa chỉ gần nhất",
+            "description": "Tìm các chi nhánh EMS gần người dùng nhất dựa trên địa chỉ/khu vực mà người dùng cung cấp hoặc tọa độ đã lưu.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "user_location": {
+                    "user_address": {
                         "type": "string",
-                        "description": "Địa chỉ của người dùng"
+                        "description": "Địa chỉ hoặc khu vực cụ thể khách nhắc tới (ví dụ: 'Hoàng Ngân', 'Cầu Giấy')"
+                    },
+                    "top_n": {
+                        "type": "integer",
+                        "description": "Số lượng chi nhánh gần nhất cần trả về, mặc định là 3"
                     }
-                },
-                "required": ["user_location"]
+                }
             }
         }
     ]
@@ -141,39 +112,19 @@ def build_tools_list(agent_name: str) -> str:
         )
     return "\n".join(tool_lines)
 
-# ĐỊNH NGHĨA AGENT PROFILES (giữ nguyên logic)
+# ĐỊNH NGHĨA AGENT PROFILES
 AGENT_PROFILES = {
     "agent_main": {
         "role": "Chuyên viên tư vấn chính về Fitness & Yoga",
-        "system_instruction": """Hướng dẫn: ...""", # Lược bớt text mẫu để tối ưu
+        "system_instruction": AGENT_MAIN_PROMPT,
         "tool_list": build_tools_list("agent_main")
     },
     "agent_diachi": {
         "role": "Chuyên gia về Địa điểm & Chi nhánh",
-        "system_instruction": """Hướng dẫn: ...""",
+        "system_instruction": AGENT_DIACHI_PROMPT,
         "tool_list": build_tools_list("agent_diachi")
     }
 }
-# Khôi phục đầy đủ system_instruction trong file thực tế
-AGENT_PROFILES["agent_main"]["system_instruction"] = """Hướng dẫn:
-                1. Luôn bắt đầu bằng THOUGHT (Suy nghĩ), sau đó quyết định chọn (ACTION và ARGUMENTS) hoặc ANSWER (Trả lời) hoặc HANDOFF (Chuyển giao).
-                2. Kiểm tra kỹ các kết quả từ công cụ trước đó (tool_observations) để xem câu trả lời đã có sẵn hay chưa.
-                3. Nếu chưa có, hãy chọn công cụ (tool) phù hợp nhất để thu thập thêm thông tin.
-                4. Vui lòng không trả lời bất cứ điều gì dựa trên kiến thức chung hoặc sự phỏng đoán khi chưa có đủ thông tin.
-                5. ARGUMENTS (Tham số) bắt buộc phải là định dạng JSON hợp lệ với các khóa (keys) nằm trong dấu ngoặc kép.
-                6. Vui lòng không thêm bất cứ nội dung nào nằm ngoài định dạng đã được chỉ định.
-                7. Không hỏi người dùng về vị trí của họ vì chúng ta đã tự động lấy được thông tin đó từ Mobile App.
-                8. Nếu câu hỏi liên quan đến TÌM ĐỊA ĐIỂM, CHI NHÁNH GẦN NHẤT, hoặc ĐỊA CHỈ PHÒNG TẬP, bạn BẮT BUỘC phải HANDOFF (Chuyển giao) cho Chuyên gia Địa điểm trước khi ANSWER. Chỉ cần phản hồi là HANDOFF:agent_diachi.
-                ---"""
-AGENT_PROFILES["agent_diachi"]["system_instruction"] = """Hướng dẫn:
-                1. Luôn bắt đầu bằng THOUGHT (Suy nghĩ), sau đó quyết định chọn ACTION (Hành động) hoặc ANSWER (Trả lời).
-                2. Kiểm tra kỹ các kết quả từ công cụ trước đó (tool_observations) để xem câu trả lời đã có sẵn hay chưa.
-                3. Nếu chưa có, hãy chọn công cụ (tool) phù hợp nhất để thu thập thêm thông tin.
-                4. Vui lòng không trả lời bất cứ điều gì dựa trên kiến thức chung hoặc sự phỏng đoán khi chưa có đủ thông tin.
-                5. ARGUMENTS (Tham số) bắt buộc phải là định dạng JSON hợp lệ với các khóa (keys) nằm trong dấu ngoặc kép.
-                6. Vui lòng không thêm bất cứ nội dung nào nằm ngoài định dạng đã được chỉ định.
-                7. Không hỏi người dùng về vị trí của họ vì chúng ta đã tự động lấy được thông tin đó từ Mobile App.
-                ---"""
 
 prompt_template = ChatPromptTemplate.from_messages([
     ("system", "Bạn là {role}"),
@@ -204,37 +155,58 @@ def call_agent(state: dict, agent_name: str) -> dict:
 def call_tool(state: dict) -> dict:
     action_text = state.get("last_agent_response", "")
     agent_name = state.get("last_agent")
-    if "ACTION:" not in action_text:
+    
+    # Tìm Tool Name
+    tool_name = None
+    if "ACTION:" in action_text:
+        match = re.search(r"ACTION:\s*([a-zA-Z0-9_]+)", action_text)
+        if match:
+            tool_name = match.group(1).strip()
+    
+    # Tìm Arguments
+    args = {}
+    json_match = re.search(r"({.*})", action_text, re.DOTALL)
+    if json_match:
+        try:
+            clean_json = json_match.group(1).strip()
+            args = json.loads(clean_json)
+            if not tool_name and "tool_code" in args:
+                tool_name = args.get("tool_code")
+        except:
+            pass
+
+    if not tool_name:
         state.setdefault("tool_obervations", []).append(f"[No action found by {agent_name}]")
         return state
-    tool_name = action_text.split("ACTION:")[1].split("\n")[0].strip()
+
     allowed_tools = [tool["name"] for tool in AGENT_TOOLS_LIST.get(agent_name, [])]
     if tool_name not in allowed_tools:
         msg = f"[Tool '{tool_name}' NOT allowed for {agent_name}]"
         state.setdefault("tool_obervations", []).append(msg)
         return state
-    args = {}
-    if "ARGUMENTS:" in action_text:
-        args_text = action_text.split("ARGUMENTS:")[1].strip()
-        try:
-            args = json.loads(args_text)
-        except:
-            state.setdefault("tool_obervations", []).append("[Failed to parse arguments]")
-            return state
+        
+    if tool_name == "search_address":
+        args["sender_id"] = state.get("sender_id")
+        if "top_n" not in args:
+            args["top_n"] = 3
+
     tool_func = TOOL_MAPPING.get(tool_name)
     if not tool_func:
         state.setdefault("tool_obervations", []).append("[Unknown tool]")
         return state
     results = tool_func(**args)
-    state.setdefault("tool_obervations", []).append(f"[{tool_name} results: {results.get('context')}]")
+    if results and isinstance(results, dict):
+        state.setdefault("tool_obervations", []).append(f"[{tool_name} results: {results.get('context')}]")
+    else:
+        state.setdefault("tool_obervations", []).append(f"[{tool_name} trả về kết quả không hợp lệ]")
     return state
 
 def should_continue(state: dict) -> str:
-    if state.get("num_steps", 0) >= 5: return "end"
-    response = state.get("last_agent_response", "").upper()
-    if "ANSWER" in response: return "end"
-    if "ACTION" in response: return "continue"
-    if "HANDOFF" in response: return "handoff"
+    if state.get("num_steps", 0) >= AI_MAX_STEPS: return "end"
+    response_upper = state.get("last_agent_response", "").upper()
+    if "ANSWER:" in response_upper: return "end"
+    if "ACTION:" in response_upper or "TOOL_CODE" in response_upper: return "continue"
+    if "HANDOFF:" in response_upper: return "handoff"
     return "end"
 
 def which_agents(state: dict) -> str:
@@ -242,6 +214,7 @@ def which_agents(state: dict) -> str:
 
 class AgentState(TypedDict):
     query: str
+    sender_id: str 
     last_agent_response: str
     last_agent: str
     tool_obervations: list
@@ -257,15 +230,35 @@ workflow_m.add_conditional_edges("agent_diachi", should_continue, {"continue": "
 workflow_m.add_conditional_edges("tools", which_agents, {"agent_main": "agent_main", "agent_diachi": "agent_diachi"})
 agentic_graph_m = workflow_m.compile()
 
-def get_agent_response(user_text: str) -> str:
-    print(f"\n[Người dùng hỏi]: {user_text}")
-    agent_state = {"query": user_text, "last_agent_response": "", "tool_obervations": [], "num_steps": 0}
-    try:
-        result = agentic_graph_m.invoke(agent_state)
-        raw_response = result.get("last_agent_response", "")
-        if "ANSWER:" in raw_response:
-            return raw_response.split("ANSWER:")[1].strip().strip('"')
-        return raw_response.strip()
-    except Exception as e:
-        print(f"Lỗi khi chạy LangGraph: {e}")
-        return "Bạn cho bên mình xin SDT nhé, chuyên viên EMS sẽ tư vấn rõ hơn!"
+def get_agent_response(user_text: str, sender_id: str, user_context: str = "", max_retries: int = 3) -> str:
+    """Gọi AI agent để lấy response"""
+    if user_context and user_context.strip():
+        query_with_context = f"{user_context}\n\n[Câu hỏi mới]: {user_text}"
+    else:
+        query_with_context = user_text
+    
+    agent_state = {
+        "query": query_with_context,
+        "sender_id": sender_id,
+        "last_agent_response": "",
+        "tool_obervations": [],
+        "num_steps": 0,
+    }
+    
+    for attempt in range(max_retries):
+        try:
+            result = agentic_graph_m.invoke(agent_state)
+            raw_response = result.get("last_agent_response", "")
+            
+            if "ANSWER:" in raw_response:
+                return raw_response.split("ANSWER:")[1].strip().strip('"')
+            
+            if "ACTION:" in raw_response:
+                return "Dạ hiện tại mình đang kiểm tra thông tin này, bạn chờ mình một xíu nhé hoặc để lại SĐT mình phản hồi ngay ạ."
+                
+            return raw_response.strip()
+        except Exception as e:
+            print(f"Lỗi khi chạy LangGraph (Attempt {attempt+1}): {e}")
+            continue
+    
+    return "Bạn cho bên mình xin SDT nhé, chuyên viên EMS sẽ tư vấn rõ hơn!"
