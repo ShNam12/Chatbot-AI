@@ -7,6 +7,7 @@ from src.db.operations import save_conversation, should_send_overview, mark_over
 from src.services.ggsheet_service import save_to_sheet
 from src.config.overview_config import OVERVIEW_NESSAGE, IMAGE_OR_VIDEO, OVERVIEW_IMAGE_URL, OVERVIEW_VIDEO_URL
 from src.config.settings import FB_GRAPH_BASE_URL, FB_GRAPH_VERSION
+from src.services.location_memory import handle_location_memory
 from src.utils.helpers import extract_phone, detect_and_update_interest
 
 from dotenv import load_dotenv
@@ -147,6 +148,16 @@ def process_message(body):
                     except Exception as e:
                         print(f"❌ [ChatHistory] Lỗi lưu bot message: {e}")
                     
+
+                    try:
+                        location_result = handle_location_memory(sender_id, message_text)
+                        print(f"[Location memory] {location_result}")
+                    except Exception as e:
+                        print(f"[Location memory] Bỏ qua do lỗi: {e}")
+
+                    ai_reply = get_agent_response(message_text, sender_id)
+                    send_sender_action(sender_id, "typing_off")
+
                     send_message_to_facebook(sender_id, ai_reply, customer_name)
 
                     # Update last bot message time

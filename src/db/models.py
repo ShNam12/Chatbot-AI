@@ -13,7 +13,11 @@ class UserSession(SQLModel, table=True):
     last_bot_message_time: Optional[datetime] = Field(default=None)
     page_id: Optional[str] = Field(default=None)
     message_id: Optional[str] = Field(default=None)
+    
     address: Optional[str] = Field(default=None)
+    lat: Optional[float] = Field(default=None)
+    lon: Optional[float] = Field(default=None)
+    address_updated_at: Optional[datetime] = Field(default=None)
 
 
 # ============================================================
