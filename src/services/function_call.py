@@ -244,9 +244,28 @@ workflow_m.add_conditional_edges("agent_diachi", should_continue, {"continue": "
 workflow_m.add_conditional_edges("tools", which_agents, {"agent_main": "agent_main", "agent_diachi": "agent_diachi"})
 agentic_graph_m = workflow_m.compile()
 
-def get_agent_response(user_text: str, max_retries: int = 3) -> str:
-    print(f"\n[Người dùng hỏi]: {user_text}")
-    agent_state = {"query": user_text, "last_agent_response": "", "tool_obervations": [], "num_steps": 0}
+def get_agent_response(user_text: str, user_context: str = "", max_retries: int = 3) -> str:
+    """
+    Gọi AI agent để lấy response
+    
+    Args:
+        user_text: Tin nhắn từ người dùng
+        user_context: Lịch sử hội thoại (tùy chọn) để giúp AI hiểu context
+        max_retries: Số lần thử lại
+    
+    Returns:
+        Response từ AI
+    """
+    # 🔑 Thêm context vào query nếu có
+    if user_context and user_context.strip():
+        query_with_context = f"{user_context}\n\n[Câu hỏi mới]: {user_text}"
+        print(f"\n[Người dùng hỏi]: {user_text}")
+        print(f"[Context đã thêm]: {len(user_context)} ký tự")
+    else:
+        query_with_context = user_text
+        print(f"\n[Người dùng hỏi]: {user_text}")
+    
+    agent_state = {"query": query_with_context, "last_agent_response": "", "tool_obervations": [], "num_steps": 0}
     
     import time
     for attempt in range(max_retries):

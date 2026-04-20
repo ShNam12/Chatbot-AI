@@ -3,7 +3,7 @@ import requests
 import os
 import re
 from src.services.function_call import get_agent_response
-from src.db.operations import save_conversation, should_send_overview, mark_overview_sent
+from src.db.operations import save_conversation, should_send_overview, mark_overview_sent, save_user_message, save_bot_message, get_conversation_context, update_last_bot_message_time
 from src.services.ggsheet_service import save_to_sheet
 from src.config.overview_config import OVERVIEW_NESSAGE, IMAGE_OR_VIDEO, OVERVIEW_IMAGE_URL, OVERVIEW_VIDEO_URL
 from src.config.settings import FB_GRAPH_BASE_URL, FB_GRAPH_VERSION
@@ -99,6 +99,21 @@ def process_message(body):
                     print(f"🎯 Interest: {interest_str}")
                     phone = extract_phone(message_text)
 
+                    # 💾 SAVE USER MESSAGE TO DATABASE
+                    try:
+                        save_user_message(
+                            sender_id=sender_id,
+                            sender_name=customer_name,
+                            message_text=message_text,
+                            message_id=message_id,
+                            page_id=recipient_id,
+                            interest=interest_str if interest else None,
+                            phone=phone
+                        )
+                        print(f"✅ [ChatHistory] Đã lưu user message")
+                    except Exception as e:
+                        print(f"❌ [ChatHistory] Lỗi lưu user message: {e}")
+
                     if phone:
                         print(f"📞 Phát hiện SĐT: {phone}")
                         try:
@@ -110,9 +125,32 @@ def process_message(body):
                         continue
 
                     send_sender_action(sender_id, "typing_on")
-                    ai_reply = get_agent_response(message_text)
+                    
+                    # 🧠 Lấy context lịch sử chat để AI hiểu được hội thoại
+                    conversation_context = get_conversation_context(sender_id, max_messages=8)
+                    
+                    # Gọi AI với context
+                    ai_reply = get_agent_response(message_text, user_context=conversation_context)
+                    
                     send_sender_action(sender_id, "typing_off")  # 👈 optional (tắt typing)
+                    
+                    # 💾 SAVE BOT MESSAGE TO DATABASE
+                    try:
+                        save_bot_message(
+                            sender_id=sender_id,
+                            response_text=ai_reply,
+                            category=None,
+                            intent=interest_str if interest else None,
+                            tool_used="retrival_data"
+                        )
+                        print(f"✅ [ChatHistory] Đã lưu bot message")
+                    except Exception as e:
+                        print(f"❌ [ChatHistory] Lỗi lưu bot message: {e}")
+                    
                     send_message_to_facebook(sender_id, ai_reply, customer_name)
+
+                    # Update last bot message time
+                    update_last_bot_message_time(sender_id)
 
     except Exception as e:
         print(f"❌ Lỗi process_message: {e}")
@@ -156,6 +194,9 @@ def send_message_to_facebook(recipient_id: str, text: str, customer_name: str = 
             print(f"✅ Đã gửi overview trong 24h cho {recipient_id}, bỏ qua overview")
 
         reply_sent = send_text_message(recipient_id, text, customer_name)
+        if reply_sent:
+            update_last_bot_message_time(recipient_id)
+
         if not reply_sent:
             print("❌ Gửi reply AI thất bại")
 
