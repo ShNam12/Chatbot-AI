@@ -13,7 +13,11 @@ class UserSession(SQLModel, table=True):
     last_bot_message_time: Optional[datetime] = Field(default=None)
     page_id: Optional[str] = Field(default=None)
     message_id: Optional[str] = Field(default=None)
+    
     address: Optional[str] = Field(default=None)
+    lat: Optional[float] = Field(default=None)
+    lon: Optional[float] = Field(default=None)
+    address_updated_at: Optional[datetime] = Field(default=None)
 
 
 # ============================================================
@@ -119,3 +123,16 @@ class VectorFAQ(SQLModel, table=True):
     keywords: Optional[str] = Field(default=None)
     extra_info: Optional[dict] = Field(default=None, sa_column=Column(JSON))
     embedding: List[float] = Field(sa_column=Column(Vector(3072)))
+
+class EmsBranch(SQLModel, table=True):
+    __tablename__ = "ems_branch"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    code: str = Field(unique=True)          # CS1, CS2, ...
+    address: str                             # Địa chỉ đầy đủ text
+    district: Optional[str] = Field(default=None)   # Quận/Huyện
+    city: Optional[str] = Field(default=None)        # Thành phố
+    latitude: Optional[float] = Field(default=None)
+    longitude: Optional[float] = Field(default=None)
+    is_active: bool = Field(default=True)
+

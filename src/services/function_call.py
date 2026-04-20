@@ -1,8 +1,6 @@
 import json
 import os
-import pandas as pd
 from typing import TypedDict
-from math import radians, sin, cos, sqrt, atan2
 from dotenv import load_dotenv
 
 from langgraph.graph import StateGraph, END
@@ -10,10 +8,13 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 
 # Import các thành phần nội bộ
-from src.config.settings import AI_MODEL_NAME, AI_REQUEST_TIMEOUT, AI_MAX_STEPS, DEFAULT_USER_COORD, DIACHI_CSV_PATH
+from src.config.settings import AI_MODEL_NAME, AI_REQUEST_TIMEOUT, AI_MAX_STEPS
+
 from src.config.prompts import AGENT_MAIN_PROMPT, AGENT_DIACHI_PROMPT
 from src.db.operations import save_conversation, search_faq
 from src.utils.embeddings import get_embeddings_model
+from src.services.search_address import search_address
+
 
 
 # AGENT SETUP
@@ -56,43 +57,6 @@ def retrival_data(query):
         
     return {"context": context_text, "source": "cauhoi"}
 
-def search_address(user_location: str = "Hanoi,Vietnam", top_n: int = 3):
-    """ Tìm kiếm các địa chỉ gần người cần tư vấn nhất"""
-    print("--- TOOL CALL: SEARCHING ADDRESS ---")
-
-    try: 
-        if not os.path.exists(DIACHI_CSV_PATH):
-            print(f"⚠️ Không tìm thấy file dữ liệu tại {DIACHI_CSV_PATH}")
-            # Fallback nếu không có file CSV
-            return {"context": "Hiện tại không có thông tin chi nhánh.", "source": "diachi"}
-            
-        df_br = pd.read_csv(DIACHI_CSV_PATH)
-        print("✅ Đã tải thành công dữ liệu các chi nhánh!")
-    except Exception as e:
-        print(f"❌ Lỗi khi tải dữ liệu: {e}")
-        return {"context": "Lỗi truy xuất địa chỉ.", "source": "diachi"}
-
-    user_lat, user_lon = DEFAULT_USER_COORD["lat"], DEFAULT_USER_COORD["lon"]
-
-    def haversine(lat1, lon1, lat2, lon2):
-        lat1, lon1, lat2, lon2 = map(radians, [float(lat1), float(lon1), float(lat2), float(lon2)])
-        dlon = lon2 - lon1
-        dlat = lat2 - lat1
-        a = sin(dlat/2)**2 + cos(lat1)*cos(lat2)*sin(dlon/2)**2
-        c = 2 * atan2(sqrt(a), sqrt(1-a))
-        return 6371 * c 
-
-    filtered_df = df_br.copy()
-    filtered_df['distance_km'] = filtered_df.apply(
-        lambda row: haversine(user_lat, user_lon, row['latitude'], row['longitude']), axis=1
-    )
-
-    nearest = filtered_df.sort_values('distance_km').head(top_n)
-    nearest["distance_km"] = nearest["distance_km"].round(2)
-    results = nearest[['branch_name', 'branch_address', 'distance_km']].to_dict(orient='records')
-    
-    return {"context": results, "source": "diachi"}
-
 TOOL_MAPPING = {
     "retrival_data": retrival_data,
     "search_address": search_address
@@ -115,22 +79,23 @@ AGENT_TOOLS_LIST ={
             }
         }
     ],
+
+    
     "agent_diachi": [
-        {
-            "name": "search_address",
-            "description": "Tìm kiếm địa chỉ gần nhất",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "user_location": {
-                        "type": "string",
-                        "description": "Địa chỉ của người dùng"
-                    }
-                },
-                "required": ["user_location"]
+    {
+        "name": "search_address",
+        "description": "Tìm các chi nhánh EMS gần người dùng nhất dựa trên địa chỉ và tọa độ đã lưu trong user_sessions.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "top_n": {
+                    "type": "integer",
+                    "description": "Số lượng chi nhánh gần nhất cần trả về, mặc định là 3"
+                }
             }
         }
-    ]
+    }
+]
 }
 
 def build_tools_list(agent_name: str) -> str:
@@ -205,6 +170,12 @@ def call_tool(state: dict) -> dict:
         except:
             state.setdefault("tool_obervations", []).append("[Failed to parse arguments]")
             return state
+        
+    if tool_name == "search_address":
+        args["sender_id"] = state.get("sender_id")
+        if "top_n" not in args:
+            args["top_n"] = 3
+
     tool_func = TOOL_MAPPING.get(tool_name)
     if not tool_func:
         state.setdefault("tool_obervations", []).append("[Unknown tool]")
@@ -229,6 +200,7 @@ def which_agents(state: dict) -> str:
 
 class AgentState(TypedDict):
     query: str
+    sender_id: str 
     last_agent_response: str
     last_agent: str
     tool_obervations: list
@@ -244,7 +216,7 @@ workflow_m.add_conditional_edges("agent_diachi", should_continue, {"continue": "
 workflow_m.add_conditional_edges("tools", which_agents, {"agent_main": "agent_main", "agent_diachi": "agent_diachi"})
 agentic_graph_m = workflow_m.compile()
 
-def get_agent_response(user_text: str, user_context: str = "", max_retries: int = 3) -> str:
+def get_agent_response(user_text: str, sender_id: str, user_context: str = "", max_retries: int = 3) -> str:
     """
     Gọi AI agent để lấy response
     
@@ -265,7 +237,13 @@ def get_agent_response(user_text: str, user_context: str = "", max_retries: int 
         query_with_context = user_text
         print(f"\n[Người dùng hỏi]: {user_text}")
     
-    agent_state = {"query": query_with_context, "last_agent_response": "", "tool_obervations": [], "num_steps": 0}
+    agent_state = {
+        "query": query_with_context,
+        "sender_id": sender_id,
+        "last_agent_response": "",
+        "tool_obervations": [],
+        "num_steps": 0,
+    }
     
     import time
     for attempt in range(max_retries):

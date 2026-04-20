@@ -2,7 +2,7 @@ from typing import List, Optional
 from datetime import datetime, timedelta
 from sqlmodel import Session, select, text
 from .database import engine
-from .models import UserSession, VectorFAQ, User, Conversation, Message    
+from .models import UserSession, VectorFAQ, User, Conversation, Message, EmsBranch
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import cast, func, desc
 
@@ -693,3 +693,93 @@ def update_last_bot_message_time(sender_id: str):
             session.add(user_session)
             session.commit()
             print(f"✅ [Operations] Updated last bot message time for {sender_id}")
+def upsert_branch(code: str, address: str,
+                  district: Optional[str] = None, city: Optional[str] = None,
+                  is_active: bool = True) -> EmsBranch:
+    """Insert chi nhánh mới hoặc update nếu đã tồn tại (theo code)."""
+    with Session(engine) as session:
+        existing = session.exec(
+            select(EmsBranch).where(EmsBranch.code == code)
+        ).first()
+
+        if existing:
+            existing.address = address
+            existing.district = district or existing.district
+            existing.city = city or existing.city
+            existing.is_active = is_active
+            session.add(existing)
+            session.commit()
+            session.refresh(existing)
+            print(f"♻️  [Branch] Đã cập nhật chi nhánh {code}")
+            return existing
+        else:
+            branch = EmsBranch(
+                code=code, address=address,
+                district=district, city=city,
+                is_active=is_active
+            )
+            session.add(branch)
+            session.commit()
+            session.refresh(branch)
+            print(f"➕ [Branch] Đã thêm chi nhánh {code}: {address}")
+            return branch
+
+
+def get_all_branches() -> list[EmsBranch]:
+    """Lấy tất cả chi nhánh đang hoạt động."""
+    with Session(engine) as session:
+        branches = session.exec(
+            select(EmsBranch).where(EmsBranch.is_active == True)
+        ).all()
+        return list(branches)
+
+def update_user_location(sender_id: str,
+    address: str,
+    lat: float,
+    lon: float) -> UserSession:
+    """Cập nhật địa chỉ và tọa độ của người dùng trong session."""
+
+    with Session(engine) as session:
+        statement = select(UserSession).where(UserSession.sender_id == sender_id)
+        user_session = session.exec(statement).first()
+
+        if not user_session:
+            user_session = UserSession(sender_id = sender_id)
+            session.add(user_session)
+
+        user_session.address = address
+        user_session.lat = lat
+        user_session.lon = lon
+        user_session.address_updated_at = datetime.now()
+
+        session.add(user_session)
+        session.commit()
+        session.refresh(user_session)
+
+        print(f"📍 [Operations] Cập nhật vị trí cho {sender_id}: {address} ({lat}, {lon})")
+        return user_session
+
+def get_user_location(sender_id: str ) -> Optional[dict]:
+    """Lấy vị trí của người dùng da luu trong session"""
+
+    with Session(engine) as session:
+        statement = select(UserSession).where(UserSession.sender_id == sender_id)
+        user_session = session.exec(statement).first()
+
+        if not user_session:
+            print(f"⚠️ Không tìm thấy session cho sender_id: {sender_id}")
+            return None
+        
+        if user_session.lat is None or user_session.lon is None:
+            return None
+        
+        return {
+            "sender_id": user_session.sender_id,
+            "address": user_session.address,
+            "lat": user_session.lat,
+            "lon": user_session.lon,
+            "updated_at": user_session.address_updated_at,
+        }
+
+
+    
