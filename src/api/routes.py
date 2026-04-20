@@ -170,7 +170,8 @@ def send_text_message(recipient_id: str, text: str, customer_name: str = None):
     if not customer_name:
         customer_name = get_user_name(recipient_id)
         
-    full_message = text.format(tag_name=customer_name)
+    # Sử dụng replace thay vì format để tránh lỗi KeyError khi AI trả về văn bản có dấu ngoặc nhọn {}
+    full_message = text.replace("{tag_name}", customer_name) if customer_name else text
     url = f"{FB_GRAPH_BASE_URL}/me/messages"
     params = {"access_token": PAGE_ACCESS_TOKEN}
     payload = {

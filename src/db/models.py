@@ -121,7 +121,7 @@ class VectorFAQ(SQLModel, table=True):
     intent: str
     content: str
     keywords: Optional[str] = Field(default=None)
-    extra_info: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    # extra_info: Optional[dict] = Field(default=None, sa_column=Column(JSON))
     embedding: List[float] = Field(sa_column=Column(Vector(3072)))
 
 class EmsBranch(SQLModel, table=True):

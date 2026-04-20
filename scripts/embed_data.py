@@ -22,7 +22,7 @@ def embed_csv_data():
     # Xóa dữ liệu cũ để tránh xung đột dimension (Nếu bạn muốn nạp lại từ đầu)
     print("🧹 Đang làm sạch dữ liệu cũ trong vector_faq...")
     with Session(engine) as session:
-        session.execute(text("TRUNCATE TABLE vector_faq"))
+        session.execute(text("TRUNCATE TABLE vector_faq RESTART IDENTITY"))
         session.commit()
 
     # 2. Sử dụng Gemini Embeddings từ utils
@@ -30,7 +30,7 @@ def embed_csv_data():
     embeddings_model = get_embeddings_model()
 
     # 3. Đọc dữ liệu từ file master
-    file_path = "src/data/EMS_Knowledge_Master.csv"
+    file_path = "src/data/EMS_Data.csv"
     if os.path.exists(file_path):
         print(f"📖 Đang đọc file kiến thức tổng hợp: {file_path}")
         combined_df = pd.read_csv(file_path)
