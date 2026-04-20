@@ -41,11 +41,14 @@ def init_db():
                     default_clause = ""
                     if col.default is not None and hasattr(col.default, "arg"):
                         default_clause = f"DEFAULT {col.default.arg!r}"
-                    conn.execute(text(
-                        f'ALTER TABLE "{table_name}" ADD COLUMN IF NOT EXISTS '
-                        f'"{col.name}" {col_type} {default_clause} {nullable}'
-                    ))
-                    print(f"  ➕ Đã thêm cột '{col.name}' vào bảng '{table_name}'")
+                    try:
+                        conn.execute(text(
+                            f'ALTER TABLE "{table_name}" ADD COLUMN IF NOT EXISTS '
+                            f'"{col.name}" {col_type} {default_clause} {nullable}'
+                        ))
+                        print(f"  ➕ Đã thêm cột '{col.name}' vào bảng '{table_name}'")
+                    except Exception as e:
+                        print(f"  ⚠️ Không thể tự động thêm cột '{col.name}': {e}")
         conn.commit()
 
     # pgvector HNSW/IVFFLAT chỉ hỗ trợ tối đa 2000 dims, embedding 3072 dims → dùng sequential scan

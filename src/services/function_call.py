@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from typing import TypedDict
 from dotenv import load_dotenv
 
@@ -81,10 +82,14 @@ AGENT_TOOLS_LIST ={
     "agent_diachi": [
         {
             "name": "search_address",
-            "description": "Tìm các chi nhánh EMS gần người dùng nhất dựa trên địa chỉ và tọa độ đã lưu trong user_sessions.",
+            "description": "Tìm các chi nhánh EMS gần người dùng nhất dựa trên địa chỉ/khu vực mà người dùng cung cấp hoặc tọa độ đã lưu.",
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "user_address": {
+                        "type": "string",
+                        "description": "Địa chỉ hoặc khu vực cụ thể khách nhắc tới (ví dụ: 'Hoàng Ngân', 'Cầu Giấy')"
+                    },
                     "top_n": {
                         "type": "integer",
                         "description": "Số lượng chi nhánh gần nhất cần trả về, mặc định là 3"
@@ -150,25 +155,36 @@ def call_agent(state: dict, agent_name: str) -> dict:
 def call_tool(state: dict) -> dict:
     action_text = state.get("last_agent_response", "")
     agent_name = state.get("last_agent")
-    if "ACTION:" not in action_text:
+    
+    # Tìm Tool Name
+    tool_name = None
+    if "ACTION:" in action_text:
+        match = re.search(r"ACTION:\s*([a-zA-Z0-9_]+)", action_text)
+        if match:
+            tool_name = match.group(1).strip()
+    
+    # Tìm Arguments
+    args = {}
+    json_match = re.search(r"({.*})", action_text, re.DOTALL)
+    if json_match:
+        try:
+            clean_json = json_match.group(1).strip()
+            args = json.loads(clean_json)
+            if not tool_name and "tool_code" in args:
+                tool_name = args.get("tool_code")
+        except:
+            pass
+
+    if not tool_name:
         state.setdefault("tool_obervations", []).append(f"[No action found by {agent_name}]")
         return state
-    tool_name = action_text.split("ACTION:")[1].split("\n")[0].strip()
+
     allowed_tools = [tool["name"] for tool in AGENT_TOOLS_LIST.get(agent_name, [])]
     if tool_name not in allowed_tools:
         msg = f"[Tool '{tool_name}' NOT allowed for {agent_name}]"
         state.setdefault("tool_obervations", []).append(msg)
         return state
-    args = {}
-    if "ARGUMENTS:" in action_text:
-        args_text = action_text.split("ARGUMENTS:")[1].strip()
-        try:
-            args = json.loads(args_text)
-        except:
-            state.setdefault("tool_obervations", []).append("[Failed to parse arguments]")
-            return state
         
-    # Inject sender_id tự động cho tool search_address
     if tool_name == "search_address":
         args["sender_id"] = state.get("sender_id")
         if "top_n" not in args:
@@ -187,10 +203,10 @@ def call_tool(state: dict) -> dict:
 
 def should_continue(state: dict) -> str:
     if state.get("num_steps", 0) >= AI_MAX_STEPS: return "end"
-    response = state.get("last_agent_response", "").upper()
-    if "ANSWER" in response: return "end"
-    if "ACTION" in response: return "continue"
-    if "HANDOFF" in response: return "handoff"
+    response_upper = state.get("last_agent_response", "").upper()
+    if "ANSWER:" in response_upper: return "end"
+    if "ACTION:" in response_upper or "TOOL_CODE" in response_upper: return "continue"
+    if "HANDOFF:" in response_upper: return "handoff"
     return "end"
 
 def which_agents(state: dict) -> str:
@@ -215,26 +231,11 @@ workflow_m.add_conditional_edges("tools", which_agents, {"agent_main": "agent_ma
 agentic_graph_m = workflow_m.compile()
 
 def get_agent_response(user_text: str, sender_id: str, user_context: str = "", max_retries: int = 3) -> str:
-    """
-    Gọi AI agent để lấy response
-    
-    Args:
-        user_text: Tin nhắn từ người dùng
-        sender_id: ID của người dùng để truy xuất vị trí/phiên làm việc
-        user_context: Lịch sử hội thoại (tùy chọn) để giúp AI hiểu context
-        max_retries: Số lần thử lại
-    
-    Returns:
-        Response từ AI
-    """
-    # 🔑 Thêm context vào query nếu có
+    """Gọi AI agent để lấy response"""
     if user_context and user_context.strip():
         query_with_context = f"{user_context}\n\n[Câu hỏi mới]: {user_text}"
-        print(f"\n[Người dùng hỏi]: {user_text}")
-        print(f"[Context đã thêm]: {len(user_context)} ký tự")
     else:
         query_with_context = user_text
-        print(f"\n[Người dùng hỏi]: {user_text}")
     
     agent_state = {
         "query": query_with_context,
@@ -244,17 +245,20 @@ def get_agent_response(user_text: str, sender_id: str, user_context: str = "", m
         "num_steps": 0,
     }
     
-    import time
     for attempt in range(max_retries):
         try:
             result = agentic_graph_m.invoke(agent_state)
             raw_response = result.get("last_agent_response", "")
+            
             if "ANSWER:" in raw_response:
                 return raw_response.split("ANSWER:")[1].strip().strip('"')
+            
+            if "ACTION:" in raw_response:
+                return "Dạ hiện tại mình đang kiểm tra thông tin này, bạn chờ mình một xíu nhé hoặc để lại SĐT mình phản hồi ngay ạ."
+                
             return raw_response.strip()
         except Exception as e:
-            error_str = str(e)
-            print(f"Lỗi khi chạy LangGraph: {e}")
-            break
+            print(f"Lỗi khi chạy LangGraph (Attempt {attempt+1}): {e}")
+            continue
     
     return "Bạn cho bên mình xin SDT nhé, chuyên viên EMS sẽ tư vấn rõ hơn!"

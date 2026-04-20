@@ -30,7 +30,7 @@ def embed_csv_data():
     embeddings_model = get_embeddings_model()
 
     # 3. Đọc dữ liệu từ file master
-    file_path = "src/data/EMS_Data.csv"
+    file_path = "src/data/EMS_Fitness_Yoga_DB.csv"
     if os.path.exists(file_path):
         print(f"📖 Đang đọc file kiến thức tổng hợp: {file_path}")
         combined_df = pd.read_csv(file_path)
@@ -51,12 +51,12 @@ def embed_csv_data():
     for index, row in combined_df.iterrows():
         category = str(row.get('Category', ''))
         sub_category = str(row.get('Sub_Category', ''))
-        intent = str(row.get('User_Query_Intent', ''))
+        # intent = str(row.get('User_Query_Intent', ''))
         content = str(row.get('Information_Chunk', ''))
-        keywords = str(row.get('Keywords', ''))
+        # keywords = str(row.get('Keywords', ''))
 
         # Tạo chuỗi văn bản đầy đủ để AI hiểu ngữ cảnh tốt hơn
-        full_text = f"Category: {category} | Sub-Category: {sub_category} | Intent: {intent} | Content: {content} | Keywords: {keywords}"
+        full_text = f"Category: {category} | Sub-Category: {sub_category} | Content: {content}"
         
         print(f"🔄 Đang embedding dòng {index + 1}/{total_records}...")
         
@@ -68,9 +68,7 @@ def embed_csv_data():
             insert_vector_faq(
                 category=category,
                 sub_category=sub_category,
-                intent=intent,
                 content=content,
-                keywords=keywords,
                 embedding=vector
             )
         except Exception as e:

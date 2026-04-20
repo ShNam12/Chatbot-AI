@@ -61,6 +61,21 @@ POSITIVE_ADDRESS_PATTERNS = [
     "chung cư",
     "tòa",
     "khu đô thị",
+    "gần hoàng ngân",
+    "gần cầu giấy",
+    "gần láng",
+    "gần khu",
+    "chỗ thanh xuân",
+    "khu vực thanh xuân",
+    "thanh xuân",
+    "cầu giấy",
+    "đống đa",
+    "hoàng mai",
+    "hai bà trưng",
+    "ba đình",
+    "hoàn kiếm",
+    "tây hồ",
+    "hà đông",
 ]
 
 NEGATIVE_ADDRESS_PATTERNS = [
@@ -91,24 +106,44 @@ HANOI_AREAS = [
 ]
 
 
+def remove_accents(text: str) -> str:
+    """Loại bỏ dấu tiếng Việt."""
+    s1 = u'ÀÁÂÃÈÉÊÌÍÒÓÔÕÙÚÝàáâãèéêìíòóôõùúýĂăĐđĨĩŨũƠơƯưẠạẢảẤấẦầẨẩẪẫẬậẮắẰằẲẳẴẵẶặẸẹẺẻẼẽẾếỀềỂểỄễỆệỈỉỊịỌọỎỏỐốỒồỔổỖỗỘộỚớỜờỞởỠỡỢợỤụỦủỨứỪừỬửỮữỰựỲỳỴỵỶỷỸỹ'
+    s0 = u'AAAAEEEIIOOOOUUYaaaaeeeiiiiiouuyAaDdIiUuOoUuAaAaAaAaAaAaAaAaAaAaAaAaEeEeEeEeEeEeEeIiIiOoOoOoOoOoOoOoOoOoOoOoOoUuUuUuUuUuUuUuYyYyYyYy'
+    s = ""
+    for char in text:
+        if char in s1:
+            s += s0[s1.index(char)]
+        else:
+            s += char
+    return s
+
+def normalize_for_match(text: str) -> str:
+    # Chuyển về chữ thường, xóa khoảng trắng thừa và LOẠI BỎ DẤU
+    text = text.lower()
+    text = remove_accents(text)
+    return re.sub(r"\s+", " ", text).strip()
+
 def may_contain_user_address(message_text: str) -> bool:
     text = normalize_for_match(message_text)
 
-    if any(pattern in text for pattern in NEGATIVE_ADDRESS_PATTERNS):
-        return False
+    # Các từ khóa trong list này cũng nên để dạng KHÔNG DẤU để khớp với text đã normalize
+    for pattern in NEGATIVE_ADDRESS_PATTERNS:
+        if remove_accents(pattern.lower()) in text:
+            return False
 
-    if any(pattern in text for pattern in POSITIVE_ADDRESS_PATTERNS):
-        return True
-
-    words = text.split()
-    if len(words) <= 5 and any(area in text for area in HANOI_AREAS):
-        return True
+    for pattern in POSITIVE_ADDRESS_PATTERNS:
+        if remove_accents(pattern.lower()) in text:
+            return True
+            
+    for area in HANOI_AREAS:
+        if remove_accents(area.lower()) in text:
+            # Nếu chỉ có tên quận/huyện, giới hạn độ dài tin nhắn để tránh bắt nhầm
+            words = text.split()
+            if len(words) <= 5:
+                return True
 
     return False
-
-
-def normalize_for_match(text: str) -> str:
-    return re.sub(r"\s+", " ", text.lower()).strip()
 
 
 def extract_address_with_llm(message_text: str) -> AddressExtractionResult:
@@ -173,52 +208,42 @@ Tin nhắn: {message_text}
 
 
 def normalize_address(address_text: str) -> str:
-    """Chuẩn hóa địa chỉ trước khi gửi Google Geocoding."""
+    """Chuẩn hóa địa chỉ tránh bị lặp lại suffix."""
     address = re.sub(r"\s+", " ", address_text).strip(" ,.-")
-
-    replacements = {
-        " hn": " Hà Nội",
-        " hnoi": " Hà Nội",
-    }
-    lowered = f" {address.lower()} "
-    for old, new in replacements.items():
-        lowered = lowered.replace(old, f" {new.lower()} ")
-
-    address = lowered.strip()
-
-    if "hà nội" not in address.lower():
-        address = f"{address}, Hà Nội"
-
-    if "việt nam" not in address.lower() and "viet nam" not in address.lower():
-        address = f"{address}, Việt Nam"
-
+    
+    # Xóa các suffix đã có sẵn để tránh bị cộng dồn
+    address = re.sub(r"(,\s*(Hà Nội|HN|Việt Nam|VN))+$", "", address, flags=re.IGNORECASE)
+    
     return address
 
-
-def text_to_coordinates(address:str, timeout: int = 10):
-    """Chuyển đổi địa điểm của khách thành tọa độ"""
-
+def text_to_coordinates(address: str, timeout: int = 10):
+    """Chuyển đổi địa điểm thành tọa độ với cơ chế Fallback."""
+    geolocator = Nominatim(user_agent="ems_chatbot_location")
+    
+    # 1. Thử với địa chỉ đầy đủ (có suffix chuẩn)
+    full_query = f"{address}, Hà Nội, Việt Nam"
     try:
-        geolocator = Nominatim(user_agent="ems_chatbot_location")
-        location = geolocator.geocode(
-            address,
-            timeout=timeout,
-            exactly_one=True,
-            language="vi",
-            country_codes="vn",
-        )
-
+        location = geolocator.geocode(full_query, timeout=timeout, country_codes="vn")
         if location:
             return location.latitude, location.longitude
-
-        return None
-
-    except (GeocoderTimedOut, GeocoderServiceError) as e:
-        print(f"Lỗi geocoding: {e}")
-        return None
     except Exception as e:
-        print(f"Lỗi geocoding không xác định: {e}")
-        return None
+        print(f"⚠️ Lỗi geocode lần 1: {e}")
+
+    # 2. FALLBACK: Nếu không ra, hãy thử lọc bỏ các ngõ/ngách chi tiết, chỉ giữ lại tên đường/khu vực
+    # Ví dụ: "Ngõ 163 Hoàng Ngân" -> "Hoàng Ngân"
+    if "ngõ" in address.lower() or "ngách" in address.lower() or "số" in address.lower():
+        # Tìm phần tên đường (thường đứng sau ngõ/số nhà)
+        simple_address = re.sub(r"^(ngõ|ngách|số|tầng|tòa)\s+\d+\s*", "", address, flags=re.IGNORECASE).strip()
+        if simple_address and simple_address != address:
+            print(f"🔄 Fallback Geocoding với: {simple_address}")
+            try:
+                location = geolocator.geocode(f"{simple_address}, Hà Nội, Việt Nam", timeout=timeout)
+                if location:
+                    return location.latitude, location.longitude
+            except:
+                pass
+
+    return None
 
 def detect_and_extract_address(message_text: str) -> AddressExtractionResult:
     """Nhận diện và tách địa chỉ từ tin nhắn."""
