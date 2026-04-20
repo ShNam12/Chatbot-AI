@@ -10,10 +10,11 @@ class UserSession(SQLModel, table=True):
     sender_id: str = Field(primary_key=True)
     last_customer_message_time: Optional[datetime] = Field(default=None)
     last_overview_sent_time: Optional[datetime] = Field(default=None)
-    last_bot_message_time: Optional[datetime] = Field(default=None)
+    last_bot_message_time: Optional[datetime] = Field(default=None) # Từ File 2
     page_id: Optional[str] = Field(default=None)
     message_id: Optional[str] = Field(default=None)
     
+    # Các trường lưu vị trí từ File 1
     address: Optional[str] = Field(default=None)
     lat: Optional[float] = Field(default=None)
     lon: Optional[float] = Field(default=None)
@@ -21,7 +22,7 @@ class UserSession(SQLModel, table=True):
 
 
 # ============================================================
-# 📊 Optimized 3-Table Chat History Schema
+# 📊 Optimized 3-Table Chat History Schema (Từ File 2)
 # ============================================================
 
 class User(SQLModel, table=True):
@@ -111,7 +112,6 @@ class Message(SQLModel, table=True):
     )
 
 
-
 class VectorFAQ(SQLModel, table=True):
     __tablename__ = "vector_faq"
     
@@ -121,10 +121,12 @@ class VectorFAQ(SQLModel, table=True):
     intent: str
     content: str
     keywords: Optional[str] = Field(default=None)
-    # extra_info: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    extra_info: Optional[dict] = Field(default=None, sa_column=Column(JSON))
     embedding: List[float] = Field(sa_column=Column(Vector(3072)))
 
+
 class EmsBranch(SQLModel, table=True):
+    """Bảng lưu thông tin chi nhánh (Từ File 1)"""
     __tablename__ = "ems_branch"
 
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -135,4 +137,3 @@ class EmsBranch(SQLModel, table=True):
     latitude: Optional[float] = Field(default=None)
     longitude: Optional[float] = Field(default=None)
     is_active: bool = Field(default=True)
-

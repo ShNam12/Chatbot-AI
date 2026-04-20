@@ -2,9 +2,13 @@ from typing import List, Optional
 from datetime import datetime, timedelta
 from sqlmodel import Session, select, text
 from .database import engine
-from .models import UserSession, VectorFAQ, User, Conversation, Message, EmsBranch
+# Đã gộp toàn bộ models của cả 2 file
+from .models import UserSession, VectorFAQ, EmsBranch, User, Conversation, Message    
 from pgvector.sqlalchemy import Vector
+# Đã thêm desc từ file 2
 from sqlalchemy import cast, func, desc
+
+# ==================== SHARED BASE OPERATIONS ====================
 
 def save_conversation(sender_id: str, page_id: str, message_id: str):
     """Lưu hoặc cập nhật session của người dùng"""
@@ -79,6 +83,9 @@ def insert_vector_faq(category: str, sub_category: str, intent: str, content: st
         session.add(faq)
         session.commit()
 
+
+# ==================== BRANCH & LOCATION OPERATIONS (From File 1) ====================
+
 def upsert_branch(code: str, address: str,
                   district: Optional[str] = None, city: Optional[str] = None,
                   is_active: bool = True) -> EmsBranch:
@@ -110,7 +117,6 @@ def upsert_branch(code: str, address: str,
             print(f"➕ [Branch] Đã thêm chi nhánh {code}: {address}")
             return branch
 
-
 def get_all_branches() -> list[EmsBranch]:
     """Lấy tất cả chi nhánh đang hoạt động."""
     with Session(engine) as session:
@@ -119,7 +125,54 @@ def get_all_branches() -> list[EmsBranch]:
         ).all()
         return list(branches)
 
-# ==================== 3-TABLE CHAT HISTORY OPERATIONS (Users -> Conversations -> Messages) ====================
+def update_user_location(sender_id: str,
+    address: str,
+    lat: float,
+    lon: float) -> UserSession:
+    """Cập nhật địa chỉ và tọa độ của người dùng trong session."""
+    with Session(engine) as session:
+        statement = select(UserSession).where(UserSession.sender_id == sender_id)
+        user_session = session.exec(statement).first()
+
+        if not user_session:
+            user_session = UserSession(sender_id = sender_id)
+            session.add(user_session)
+
+        user_session.address = address
+        user_session.lat = lat
+        user_session.lon = lon
+        user_session.address_updated_at = datetime.now()
+
+        session.add(user_session)
+        session.commit()
+        session.refresh(user_session)
+
+        print(f"📍 [Operations] Cập nhật vị trí cho {sender_id}: {address} ({lat}, {lon})")
+        return user_session
+
+def get_user_location(sender_id: str ) -> Optional[dict]:
+    """Lấy vị trí của người dùng da luu trong session"""
+    with Session(engine) as session:
+        statement = select(UserSession).where(UserSession.sender_id == sender_id)
+        user_session = session.exec(statement).first()
+
+        if not user_session:
+            print(f"⚠️ Không tìm thấy session cho sender_id: {sender_id}")
+            return None
+        
+        if user_session.lat is None or user_session.lon is None:
+            return None
+        
+        return {
+            "sender_id": user_session.sender_id,
+            "address": user_session.address,
+            "lat": user_session.lat,
+            "lon": user_session.lon,
+            "updated_at": user_session.address_updated_at,
+        }
+
+
+# ==================== 3-TABLE CHAT HISTORY OPERATIONS (From File 2) ====================
 
 def get_or_create_user(
     sender_id: str,
@@ -128,25 +181,12 @@ def get_or_create_user(
     interest: Optional[str] = None,
     page_id: Optional[str] = None
 ) -> User:
-    """
-    Lấy hoặc tạo mới một người dùng
-    
-    Args:
-        sender_id: ID người dùng (PSID từ Facebook)
-        sender_name: Tên người dùng
-        phone: Số điện thoại
-        interest: Lĩnh vực quan tâm
-        page_id: Facebook page ID
-    
-    Returns:
-        User object
-    """
+    """Lấy hoặc tạo mới một người dùng"""
     with Session(engine) as session:
         statement = select(User).where(User.sender_id == sender_id)
         user = session.exec(statement).first()
         
         if user:
-            # Cập nhật thông tin nếu cần thiết
             if sender_name and not user.sender_name:
                 user.sender_name = sender_name
             if phone and not user.phone:
@@ -180,20 +220,8 @@ def get_or_create_conversation(
     intent: Optional[str] = None,
     topic: Optional[str] = None
 ) -> Conversation:
-    """
-    Lấy hoặc tạo mới một cuộc trò chuyện (nếu chưa tồn tại hoặc đã kết thúc)
-    
-    Args:
-        user_id: ID của người dùng
-        category: Danh mục
-        intent: Ý định/nhu cầu
-        topic: Chủ đề
-    
-    Returns:
-        Conversation object
-    """
+    """Lấy hoặc tạo mới một cuộc trò chuyện (nếu chưa tồn tại hoặc đã kết thúc)"""
     with Session(engine) as session:
-        # Tìm cuộc trò chuyện gần đây nhất chưa kết thúc
         statement = (
             select(Conversation)
             .where(
@@ -205,7 +233,6 @@ def get_or_create_conversation(
         conversation = session.exec(statement).first()
         
         if not conversation:
-            # Tạo cuộc trò chuyện mới
             conversation = Conversation(
                 user_id=user_id,
                 category=category,
@@ -233,26 +260,9 @@ def save_user_message(
     category: Optional[str] = None,
     intent: Optional[str] = None,
 ) -> Message:
-    """
-    Lưu tin nhắn của người dùng (tạo User/Conversation nếu cần)
-    
-    Args:
-        sender_id: ID người dùng (PSID)
-        sender_name: Tên người dùng
-        message_text: Nội dung tin nhắn
-        message_id: Facebook message ID
-        page_id: Facebook page ID
-        interest: Lĩnh vực quan tâm
-        phone: Số điện thoại
-        category: Danh mục
-        intent: Ý định/nhu cầu
-    
-    Returns:
-        Message object
-    """
+    """Lưu tin nhắn của người dùng (tạo User/Conversation nếu cần)"""
     with Session(engine) as session:
         try:
-            # Bước 1: Lấy hoặc tạo User
             user = get_or_create_user(
                 sender_id=sender_id,
                 sender_name=sender_name,
@@ -261,14 +271,12 @@ def save_user_message(
                 page_id=page_id
             )
             
-            # Bước 2: Lấy hoặc tạo Conversation
             conversation = get_or_create_conversation(
                 user_id=user.id,
                 category=category,
                 intent=intent
             )
             
-            # Bước 3: Lưu Message
             message = Message(
                 conversation_id=conversation.id,
                 message_type="user",
@@ -282,7 +290,6 @@ def save_user_message(
             )
             session.add(message)
             
-            # Cập nhật thống kê
             conversation.message_count += 1
             user.total_messages += 1
             user.last_message_at = datetime.now()
@@ -307,24 +314,9 @@ def save_bot_message(
     tool_response: Optional[dict] = None,
     context_data: Optional[dict] = None,
 ) -> Message:
-    """
-    Lưu phản hồi của bot vào database
-    
-    Args:
-        sender_id: ID người dùng
-        response_text: Nội dung phản hồi
-        category: Danh mục (từ FAQ)
-        intent: Ý định/nhu cầu được detect
-        tool_used: Tool được sử dụng (retrival_data, search_address, v.v.)
-        tool_response: Phản hồi từ tool (dict)
-        context_data: Dữ liệu context (dict)
-    
-    Returns:
-        Message object
-    """
+    """Lưu phản hồi của bot vào database"""
     with Session(engine) as session:
         try:
-            # Lấy User (phải tồn tại)
             statement = select(User).where(User.sender_id == sender_id)
             user = session.exec(statement).first()
             
@@ -332,7 +324,6 @@ def save_bot_message(
                 print(f"❌ [Message] User {sender_id} không tồn tại")
                 raise ValueError(f"User {sender_id} not found")
             
-            # Lấy Conversation mới nhất chưa kết thúc
             statement = (
                 select(Conversation)
                 .where(
@@ -347,7 +338,6 @@ def save_bot_message(
                 print(f"❌ [Message] Không tìm thấy cuộc trò chuyện cho user {sender_id}")
                 raise ValueError(f"No active conversation for user {sender_id}")
             
-            # Tạo Message bot
             message = Message(
                 conversation_id=conversation.id,
                 message_type="bot",
@@ -361,7 +351,6 @@ def save_bot_message(
             )
             session.add(message)
             
-            # Cập nhật thống kê
             conversation.message_count += 1
             conversation.intent = intent or conversation.intent
             conversation.category = category or conversation.category
@@ -380,17 +369,7 @@ def save_bot_message(
 
 
 def get_user_messages(sender_id: str, limit: int = 50, offset: int = 0) -> List[Message]:
-    """
-    Lấy lịch sử tin nhắn của một người dùng
-    
-    Args:
-        sender_id: ID người dùng
-        limit: Số tin nhắn tối đa
-        offset: Bỏ qua bao nhiêu tin nhắn (pagination)
-    
-    Returns:
-        List của Message objects
-    """
+    """Lấy lịch sử tin nhắn của một người dùng"""
     with Session(engine) as session:
         statement = (
             select(Message)
@@ -406,15 +385,7 @@ def get_user_messages(sender_id: str, limit: int = 50, offset: int = 0) -> List[
 
 
 def get_conversation_messages(conversation_id: int) -> List[Message]:
-    """
-    Lấy tất cả tin nhắn trong một cuộc trò chuyện
-    
-    Args:
-        conversation_id: ID cuộc trò chuyện
-    
-    Returns:
-        List của Message objects (sắp xếp theo thời gian)
-    """
+    """Lấy tất cả tin nhắn trong một cuộc trò chuyện"""
     with Session(engine) as session:
         statement = (
             select(Message)
@@ -426,16 +397,7 @@ def get_conversation_messages(conversation_id: int) -> List[Message]:
 
 
 def get_recent_chat_history(sender_id: str, hours: int = 24) -> List[Message]:
-    """
-    Lấy lịch sử chat gần đây của một người dùng (trong N giờ)
-    
-    Args:
-        sender_id: ID người dùng
-        hours: Lấy tin nhắn từ N giờ trước
-    
-    Returns:
-        List của Message objects (sắp xếp theo thời gian)
-    """
+    """Lấy lịch sử chat gần đây của một người dùng (trong N giờ)"""
     with Session(engine) as session:
         cutoff_time = datetime.now() - timedelta(hours=hours)
         statement = (
@@ -453,12 +415,7 @@ def get_recent_chat_history(sender_id: str, hours: int = 24) -> List[Message]:
 
 
 def get_all_users_active() -> List[dict]:
-    """
-    Lấy danh sách tất cả người dùng có lịch sử chat
-    
-    Returns:
-        List của dict chứa sender_id, name, message_count, last_message_time
-    """
+    """Lấy danh sách tất cả người dùng có lịch sử chat"""
     with Session(engine) as session:
         statement = (
             select(
@@ -483,29 +440,18 @@ def get_all_users_active() -> List[dict]:
 
 
 def get_user_stats(sender_id: str) -> dict:
-    """
-    Lấy thống kê trò chuyện của một người dùng
-    
-    Args:
-        sender_id: ID người dùng
-    
-    Returns:
-        Dict chứa các thống kê (total_messages, user_messages, bot_messages, conversations, tools_used, etc.)
-    """
+    """Lấy thống kê trò chuyện của một người dùng"""
     with Session(engine) as session:
-        # Lấy user
         user = session.exec(select(User).where(User.sender_id == sender_id)).first()
         if not user:
             return {"error": f"User {sender_id} not found"}
         
-        # Tổng tin nhắn
         total_messages = session.exec(
             select(func.count(Message.id))
             .join(Conversation)
             .where(Conversation.user_id == user.id)
         ).first() or 0
         
-        # Tin nhắn của user
         user_messages = session.exec(
             select(func.count(Message.id))
             .join(Conversation)
@@ -515,16 +461,13 @@ def get_user_stats(sender_id: str) -> dict:
             )
         ).first() or 0
         
-        # Tin nhắn của bot
         bot_messages = total_messages - user_messages
         
-        # Số cuộc trò chuyện
         conversation_count = session.exec(
             select(func.count(Conversation.id))
             .where(Conversation.user_id == user.id)
         ).first() or 0
         
-        # Tool được sử dụng
         tools_used = session.exec(
             select(Message.tool_used)
             .join(Conversation)
@@ -549,12 +492,7 @@ def get_user_stats(sender_id: str) -> dict:
 
 
 def get_active_conversations() -> List[dict]:
-    """
-    Lấy danh sách tất cả cuộc trò chuyện đang hoạt động (chưa kết thúc)
-    
-    Returns:
-        List của dict chứa conversation info
-    """
+    """Lấy danh sách tất cả cuộc trò chuyện đang hoạt động (chưa kết thúc)"""
     with Session(engine) as session:
         statement = (
             select(
@@ -586,15 +524,7 @@ def get_active_conversations() -> List[dict]:
 
 
 def close_conversation(conversation_id: int) -> bool:
-    """
-    Đánh dấu kết thúc một cuộc trò chuyện
-    
-    Args:
-        conversation_id: ID cuộc trò chuyện
-    
-    Returns:
-        True nếu thành công
-    """
+    """Đánh dấu kết thúc một cuộc trò chuyện"""
     with Session(engine) as session:
         conversation = session.exec(
             select(Conversation).where(Conversation.id == conversation_id)
@@ -611,25 +541,13 @@ def close_conversation(conversation_id: int) -> bool:
 
 
 def get_conversation_context(sender_id: str, max_messages: int = 10) -> str:
-    """
-    Lấy lịch sử chat gần đây để làm context cho LLM
-    Giúp chatbot hiểu được context của đoạn hội thoại
-    
-    Args:
-        sender_id: ID người dùng
-        max_messages: Số tin nhắn tối đa lấy
-    
-    Returns:
-        String formatted history để pass vào prompt
-    """
+    """Lấy lịch sử chat gần đây để làm context cho LLM"""
     with Session(engine) as session:
         try:
-            # Lấy user
             user = session.exec(select(User).where(User.sender_id == sender_id)).first()
             if not user:
                 return ""
             
-            # Lấy conversation cuối cùng chưa kết thúc
             conversation = session.exec(
                 select(Conversation)
                 .where(
@@ -642,7 +560,6 @@ def get_conversation_context(sender_id: str, max_messages: int = 10) -> str:
             if not conversation:
                 return ""
             
-            # Lấy messages gần đây nhất
             messages = session.exec(
                 select(Message)
                 .where(Message.conversation_id == conversation.id)
@@ -653,7 +570,6 @@ def get_conversation_context(sender_id: str, max_messages: int = 10) -> str:
             if not messages:
                 return ""
             
-            # Format history cho LLM dễ hiểu
             history_lines = ["📋 Lịch sử trò chuyện gần đây:"]
             for msg in messages:
                 if msg.message_type == "user":
@@ -669,23 +585,13 @@ def get_conversation_context(sender_id: str, max_messages: int = 10) -> str:
 
 
 def delete_user_all_data(sender_id: str) -> dict:
-    """
-    Xóa toàn bộ dữ liệu của một người dùng (GDPR compliant)
-    
-    Args:
-        sender_id: ID người dùng
-    
-    Returns:
-        Dict chứa số lần xóa (messages, conversations, user)
-    """
+    """Xóa toàn bộ dữ liệu của một người dùng (GDPR compliant)"""
     with Session(engine) as session:
         try:
-            # Lấy user
             user = session.exec(select(User).where(User.sender_id == sender_id)).first()
             if not user:
                 return {"error": f"User {sender_id} not found", "deleted": 0}
             
-            # Xóa tất cả messages thuộc conversations của user này
             conversations = session.exec(
                 select(Conversation).where(Conversation.user_id == user.id)
             ).all()
@@ -699,12 +605,10 @@ def delete_user_all_data(sender_id: str) -> dict:
                 for msg in messages:
                     session.delete(msg)
             
-            # Xóa tất cả conversations
             conversation_count = len(conversations)
             for conv in conversations:
                 session.delete(conv)
             
-            # Xóa user
             session.delete(user)
             session.commit()
             
@@ -732,53 +636,3 @@ def update_last_bot_message_time(sender_id: str):
             session.add(user_session)
             session.commit()
             print(f"✅ [Operations] Updated last bot message time for {sender_id}")
-def update_user_location(sender_id: str,
-    address: str,
-    lat: float,
-    lon: float) -> UserSession:
-    """Cập nhật địa chỉ và tọa độ của người dùng trong session."""
-
-    with Session(engine) as session:
-        statement = select(UserSession).where(UserSession.sender_id == sender_id)
-        user_session = session.exec(statement).first()
-
-        if not user_session:
-            user_session = UserSession(sender_id = sender_id)
-            session.add(user_session)
-
-        user_session.address = address
-        user_session.lat = lat
-        user_session.lon = lon
-        user_session.address_updated_at = datetime.now()
-
-        session.add(user_session)
-        session.commit()
-        session.refresh(user_session)
-
-        print(f"📍 [Operations] Cập nhật vị trí cho {sender_id}: {address} ({lat}, {lon})")
-        return user_session
-
-def get_user_location(sender_id: str ) -> Optional[dict]:
-    """Lấy vị trí của người dùng da luu trong session"""
-
-    with Session(engine) as session:
-        statement = select(UserSession).where(UserSession.sender_id == sender_id)
-        user_session = session.exec(statement).first()
-
-        if not user_session:
-            print(f"⚠️ Không tìm thấy session cho sender_id: {sender_id}")
-            return None
-        
-        if user_session.lat is None or user_session.lon is None:
-            return None
-        
-        return {
-            "sender_id": user_session.sender_id,
-            "address": user_session.address,
-            "lat": user_session.lat,
-            "lon": user_session.lon,
-            "updated_at": user_session.address_updated_at,
-        }
-
-
-    

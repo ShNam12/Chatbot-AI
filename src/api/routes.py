@@ -3,11 +3,16 @@ import requests
 import os
 import re
 from src.services.function_call import get_agent_response
-from src.db.operations import save_conversation, should_send_overview, mark_overview_sent, save_user_message, save_bot_message, get_conversation_context, update_last_bot_message_time
+# Đã gộp imports từ cả 2 file
+from src.db.operations import (
+    save_conversation, should_send_overview, mark_overview_sent, 
+    save_user_message, save_bot_message, get_conversation_context, 
+    update_last_bot_message_time
+)
 from src.services.ggsheet_service import save_to_sheet
 from src.config.overview_config import OVERVIEW_NESSAGE, IMAGE_OR_VIDEO, OVERVIEW_IMAGE_URL, OVERVIEW_VIDEO_URL
 from src.config.settings import FB_GRAPH_BASE_URL, FB_GRAPH_VERSION
-from src.services.location_memory import handle_location_memory
+from src.services.location_memory import handle_location_memory # Module location từ file 2
 from src.utils.helpers import extract_phone, detect_and_update_interest
 
 from dotenv import load_dotenv
@@ -126,38 +131,35 @@ def process_message(body):
                         continue
 
                     send_sender_action(sender_id, "typing_on")
+
+                    # 📍 Ghi nhớ vị trí (Từ File 2)
+                    try:
+                        location_result = handle_location_memory(sender_id, message_text)
+                        print(f"[Location memory] {location_result}")
+                    except Exception as e:
+                        print(f"[Location memory] Bỏ qua do lỗi: {e}")
                     
-                    # 🧠 Lấy context lịch sử chat để AI hiểu được hội thoại
+                    # 🧠 Lấy context lịch sử chat để AI hiểu được hội thoại (Từ File 1)
                     conversation_context = get_conversation_context(sender_id, max_messages=8)
                     
-                    # Gọi AI với context
-                    ai_reply = get_agent_response(message_text, user_context=conversation_context)
+                    # 🤖 Gọi AI với context (Gộp parameter của cả 2 file: sender_id và user_context)
+                    ai_reply = get_agent_response(message_text, sender_id=sender_id, user_context=conversation_context)
                     
-                    send_sender_action(sender_id, "typing_off")  # 👈 optional (tắt typing)
+                    send_sender_action(sender_id, "typing_off")
                     
-                    # 💾 SAVE BOT MESSAGE TO DATABASE
+                    # 💾 SAVE BOT MESSAGE TO DATABASE (Từ File 1)
                     try:
                         save_bot_message(
                             sender_id=sender_id,
                             response_text=ai_reply,
                             category=None,
                             intent=interest_str if interest else None,
-                            tool_used="retrival_data"
+                            tool_used="retrival_data" 
                         )
                         print(f"✅ [ChatHistory] Đã lưu bot message")
                     except Exception as e:
                         print(f"❌ [ChatHistory] Lỗi lưu bot message: {e}")
                     
-
-                    try:
-                        location_result = handle_location_memory(sender_id, message_text)
-                        print(f"[Location memory] {location_result}")
-                    except Exception as e:
-                        print(f"[Location memory] Bỏ qua do lỗi: {e}")
-
-                    ai_reply = get_agent_response(message_text, sender_id)
-                    send_sender_action(sender_id, "typing_off")
-
                     send_message_to_facebook(sender_id, ai_reply, customer_name)
 
                     # Update last bot message time
@@ -170,8 +172,7 @@ def send_text_message(recipient_id: str, text: str, customer_name: str = None):
     if not customer_name:
         customer_name = get_user_name(recipient_id)
         
-    # Sử dụng replace thay vì format để tránh lỗi KeyError khi AI trả về văn bản có dấu ngoặc nhọn {}
-    full_message = text.replace("{tag_name}", customer_name) if customer_name else text
+    full_message = text.format(tag_name=customer_name)
     url = f"{FB_GRAPH_BASE_URL}/me/messages"
     params = {"access_token": PAGE_ACCESS_TOKEN}
     payload = {
@@ -206,10 +207,11 @@ def send_message_to_facebook(recipient_id: str, text: str, customer_name: str = 
             print(f"✅ Đã gửi overview trong 24h cho {recipient_id}, bỏ qua overview")
 
         reply_sent = send_text_message(recipient_id, text, customer_name)
+        
+        # Đảm bảo record update bot time chạy đúng ở đây nếu reply sent (Từ File 1)
         if reply_sent:
             update_last_bot_message_time(recipient_id)
-
-        if not reply_sent:
+        else:
             print("❌ Gửi reply AI thất bại")
 
     except Exception as e:
