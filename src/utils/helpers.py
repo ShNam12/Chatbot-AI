@@ -1,4 +1,13 @@
 import re
+from typing import Optional
+
+from src.db.models import UserSession
+from src.db.database import engine
+from sqlmodel import Session,select
+
+from geopy.geocoders import Nominatim
+from geopy.exc import GeocoderTimedOut, GeocoderServiceError
+
 
 def extract_phone(text):
     pattern = r'(?:\+84|84|0)(?:\d[\s\.-]?){8,9}\d'
@@ -70,3 +79,4 @@ def detect_and_update_interest(user_id: str, user_text: str, store: dict) -> lis
     store[user_id] = updated
 
     return list(updated)
+        

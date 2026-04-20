@@ -118,3 +118,54 @@ def get_all_branches() -> list[EmsBranch]:
             select(EmsBranch).where(EmsBranch.is_active == True)
         ).all()
         return list(branches)
+
+def update_user_location(sender_id: str,
+    address: str,
+    lat: float,
+    lon: float) -> UserSession:
+    """Cập nhật địa chỉ và tọa độ của người dùng trong session."""
+
+    with Session(engine) as session:
+        statement = select(UserSession).where(UserSession.sender_id == sender_id)
+        user_session = session.exec(statement).first()
+
+        if not user_session:
+            user_session = UserSession(sender_id = sender_id)
+            session.add(user_session)
+
+        user_session.address = address
+        user_session.lat = lat
+        user_session.lon = lon
+        user_session.address_updated_at = datetime.now()
+
+        session.add(user_session)
+        session.commit()
+        session.refresh(user_session)
+
+        print(f"📍 [Operations] Cập nhật vị trí cho {sender_id}: {address} ({lat}, {lon})")
+        return user_session
+
+def get_user_location(sender_id: str ) -> Optional[dict]:
+    """Lấy vị trí của người dùng da luu trong session"""
+
+    with Session(engine) as session:
+        statement = select(UserSession).where(UserSession.sender_id == sender_id)
+        user_session = session.exec(statement).first()
+
+        if not user_session:
+            print(f"⚠️ Không tìm thấy session cho sender_id: {sender_id}")
+            return None
+        
+        if user_session.lat is None or user_session.lon is None:
+            return None
+        
+        return {
+            "sender_id": user_session.sender_id,
+            "address": user_session.address,
+            "lat": user_session.lat,
+            "lon": user_session.lon,
+            "updated_at": user_session.address_updated_at,
+        }
+
+
+    
