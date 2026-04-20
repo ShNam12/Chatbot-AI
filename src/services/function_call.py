@@ -8,8 +8,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 
 # Import các thành phần nội bộ
-from src.config.settings import AI_MODEL_NAME, AI_REQUEST_TIMEOUT, AI_MAX_STEPS
-
+from src.config.settings import AI_MODEL_NAME, AI_REQUEST_TIMEOUT, AI_MAX_STEPS, DEFAULT_USER_COORD, DIACHI_CSV_PATH
 from src.config.prompts import AGENT_MAIN_PROMPT, AGENT_DIACHI_PROMPT
 from src.db.operations import save_conversation, search_faq
 from src.utils.embeddings import get_embeddings_model
@@ -27,7 +26,8 @@ llm = ChatGoogleGenerativeAI(
     model=AI_MODEL_NAME, 
     temperature=0,
     google_api_key=api_key,
-    request_timeout=AI_REQUEST_TIMEOUT
+    request_timeout=AI_REQUEST_TIMEOUT,
+    thinking_budget=0
 )
 
 print("✅ Đã kết nối thành công với Gemini!")
@@ -57,12 +57,48 @@ def retrival_data(query):
         
     return {"context": context_text, "source": "cauhoi"}
 
+def search_address(user_location: str = "Hanoi,Vietnam", top_n: int = 3):
+    """ Tìm kiếm các địa chỉ gần người cần tư vấn nhất"""
+    print("--- TOOL CALL: SEARCHING ADDRESS ---")
+
+    try: 
+        if not os.path.exists(DIACHI_CSV_PATH):
+            print(f"⚠️ Không tìm thấy file dữ liệu tại {DIACHI_CSV_PATH}")
+            # Fallback nếu không có file CSV
+            return {"context": "Hiện tại không có thông tin chi nhánh.", "source": "diachi"}
+            
+        df_br = pd.read_csv(DIACHI_CSV_PATH)
+        print("✅ Đã tải thành công dữ liệu các chi nhánh!")
+    except Exception as e:
+        print(f"❌ Lỗi khi tải dữ liệu: {e}")
+        return {"context": "Lỗi truy xuất địa chỉ.", "source": "diachi"}
+
+    user_lat, user_lon = DEFAULT_USER_COORD["lat"], DEFAULT_USER_COORD["lon"]
+
+    def haversine(lat1, lon1, lat2, lon2):
+        lat1, lon1, lat2, lon2 = map(radians, [float(lat1), float(lon1), float(lat2), float(lon2)])
+        dlon = lon2 - lon1
+        dlat = lat2 - lat1
+        a = sin(dlat/2)**2 + cos(lat1)*cos(lat2)*sin(dlon/2)**2
+        c = 2 * atan2(sqrt(a), sqrt(1-a))
+        return 6371 * c 
+
+    filtered_df = df_br.copy()
+    filtered_df['distance_km'] = filtered_df.apply(
+        lambda row: haversine(user_lat, user_lon, row['latitude'], row['longitude']), axis=1
+    )
+
+    nearest = filtered_df.sort_values('distance_km').head(top_n)
+    nearest["distance_km"] = nearest["distance_km"].round(2)
+    results = nearest[['branch_name', 'branch_address', 'distance_km']].to_dict(orient='records')
+    
+    return {"context": results, "source": "diachi"}
+
 TOOL_MAPPING = {
-    "retrival_data": retrival_data,
-    "search_address": search_address
+    "retrival_data": retrival_data
 }
 
-AGENT_TOOLS_LIST ={
+AGENT_TOOLS_LIST = {
     "agent_main": [
         {
             "name": "retrival_data",
@@ -79,23 +115,22 @@ AGENT_TOOLS_LIST ={
             }
         }
     ],
-
-    
     "agent_diachi": [
-    {
-        "name": "search_address",
-        "description": "Tìm các chi nhánh EMS gần người dùng nhất dựa trên địa chỉ và tọa độ đã lưu trong user_sessions.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "top_n": {
-                    "type": "integer",
-                    "description": "Số lượng chi nhánh gần nhất cần trả về, mặc định là 3"
-                }
+        {
+            "name": "search_address",
+            "description": "Tìm kiếm địa chỉ gần nhất",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "user_location": {
+                        "type": "string",
+                        "description": "Địa chỉ của người dùng"
+                    }
+                },
+                "required": ["user_location"]
             }
         }
-    }
-]
+    ]
 }
 
 def build_tools_list(agent_name: str) -> str:
@@ -116,11 +151,6 @@ AGENT_PROFILES = {
         "role": "Chuyên viên tư vấn chính về Fitness & Yoga",
         "system_instruction": AGENT_MAIN_PROMPT,
         "tool_list": build_tools_list("agent_main")
-    },
-    "agent_diachi": {
-        "role": "Chuyên gia về Địa điểm & Chi nhánh",
-        "system_instruction": AGENT_DIACHI_PROMPT,
-        "tool_list": build_tools_list("agent_diachi")
     }
 }
 
@@ -208,12 +238,10 @@ class AgentState(TypedDict):
 
 workflow_m = StateGraph(AgentState)
 workflow_m.add_node("agent_main", lambda s: call_agent(s, "agent_main"))
-workflow_m.add_node("agent_diachi", lambda s: call_agent(s, "agent_diachi"))
 workflow_m.add_node("tools", call_tool)
 workflow_m.set_entry_point("agent_main")
-workflow_m.add_conditional_edges("agent_main", should_continue, {"continue": "tools", "handoff": "agent_diachi", "end": END})
-workflow_m.add_conditional_edges("agent_diachi", should_continue, {"continue": "tools", "handoff": "agent_main", "end": END})
-workflow_m.add_conditional_edges("tools", which_agents, {"agent_main": "agent_main", "agent_diachi": "agent_diachi"})
+workflow_m.add_conditional_edges("agent_main", should_continue, {"continue": "tools", "end": END})
+workflow_m.add_conditional_edges("tools", which_agents, {"agent_main": "agent_main"})
 agentic_graph_m = workflow_m.compile()
 
 def get_agent_response(user_text: str, max_retries: int = 3) -> str:
