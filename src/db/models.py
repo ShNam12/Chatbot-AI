@@ -118,10 +118,7 @@ class VectorFAQ(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     category: str
     sub_category: str
-    intent: str
     content: str
-    keywords: Optional[str] = Field(default=None)
-    extra_info: Optional[dict] = Field(default=None, sa_column=Column(JSON))
     embedding: List[float] = Field(sa_column=Column(Vector(3072)))
 
 

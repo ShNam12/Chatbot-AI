@@ -69,15 +69,13 @@ def search_faq(query_embedding: List[float], limit: int = 2) -> List[str]:
         results = session.exec(statement).all()
         return list(results)
 
-def insert_vector_faq(category: str, sub_category: str, intent: str, content: str, keywords: str, embedding: List[float]):
+def insert_vector_faq(category: str, sub_category: str, content: str, embedding: List[float]):
     """Chèn một bản ghi kiến thức mới vào database"""
     with Session(engine) as session:
         faq = VectorFAQ(
             category=category,
             sub_category=sub_category,
-            intent=intent,
             content=content,
-            keywords=keywords,
             embedding=embedding
         )
         session.add(faq)
