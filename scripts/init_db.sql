@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS user_sessions (
     sender_id TEXT PRIMARY KEY,               -- ID người nhắn (PSID)
     last_customer_message_time TIMESTAMP,     -- Thời gian tin nhắn cuối
     last_overview_sent_time TIMESTAMP,        -- Thời gian gửi overview cuối
+    last_bot_message_time TIMESTAMP,          -- Thời gian tin nhắn cuối từ bot
     page_id TEXT,                             -- ID Fanpage nhận tin
     message_id TEXT                            -- ID tin nhắn cuối
 );
