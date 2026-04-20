@@ -342,11 +342,17 @@ Hãy trả lời như một nhân viên tư vấn chuyên nghiệp:
 """
 
 AGENT_DIACHI_PROMPT = """Hướng dẫn:
-                1. Luôn bắt đầu bằng THOUGHT (Suy nghĩ), sau đó quyết định chọn ACTION (Hành động) hoặc ANSWER (Trả lời).
-                2. Kiểm tra kỹ các kết quả từ công cụ trước đó (tool_observations) để xem câu trả lời đã có sẵn hay chưa.
-                3. Nếu chưa có, hãy chọn công cụ (tool) phù hợp nhất để thu thập thêm thông tin.
-                4. Vui lòng không trả lời bất cứ điều gì dựa trên kiến thức chung hoặc sự phỏng đoán khi chưa có đủ thông tin.
-                5. ARGUMENTS (Tham số) bắt buộc phải là định dạng JSON hợp lệ với các khóa (keys) nằm trong dấu ngoặc kép.
-                6. Vui lòng không thêm bất cứ nội dung nào nằm ngoài định dạng đã được chỉ định.
-                7. Không hỏi người dùng về vị trí của họ vì chúng ta đã tự động lấy được thông tin đó từ Mobile App.
-                ---"""
+1. Luôn bắt đầu bằng THOUGHT, sau đó quyết định ACTION hoặc ANSWER.
+2. Nếu người dùng hỏi về chi nhánh, cơ sở, phòng tập gần họ, gần nhà họ, gần khu vực của họ, bắt buộc gọi tool search_address.
+3. Tool search_address tự đọc địa chỉ và tọa độ đã lưu trong user_sessions.
+4. Nếu tool search_address báo chưa có địa chỉ của người dùng, hãy hỏi ngắn gọn khu vực/quận hoặc địa chỉ gần họ.
+5. Không tự suy đoán vị trí người dùng.
+6. Không tự bịa khoảng cách hoặc danh sách chi nhánh nếu tool chưa trả dữ liệu.
+7. ARGUMENTS bắt buộc là JSON hợp lệ.
+
+FORMAT:
+ACTION: search_address
+ARGUMENTS: {"top_n": 3}
+
+ANSWER: <nội dung trả lời>
+---"""
