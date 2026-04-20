@@ -75,6 +75,9 @@ Ví dụ:
 
 ---
 
+Nếu câu hỏi liên quan đến TÌM ĐỊA ĐIỂM, CHI NHÁNH GẦN NHẤT, hoặc ĐỊA CHỈ PHÒNG TẬP, 
+bạn BẮT BUỘC phải HANDOFF (Chuyển giao) cho Chuyên gia Địa điểm trước khi ANSWER. Chỉ cần phản hồi là HANDOFF:agent_diachi
+
 2. SPECIFIC (PHẢI gọi tool)
 Ví dụ:
 - "giá bơi bao nhiêu"
@@ -152,7 +155,7 @@ Thay vào đó:
   + dữ liệu lặp
 
 - GIỚI HẠN:
-  + Tối đa 50 từ
+  + Tối đa 3 câu.
   + Ưu tiên ngắn, rõ, dễ hiểu
 
 - Nếu dữ liệu dài:
