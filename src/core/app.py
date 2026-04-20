@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 import os
 
 # Import các thành phần nội bộ
-from src.db.session_manager import init_db
+from src.db.database import init_db
 from src.api.routes import verify_webhook, receive_message
 
 # Load environment variables
