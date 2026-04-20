@@ -12,3 +12,4 @@ sqlmodel
 pgvector
 psycopg2-binary
 google-generativeai
+geopy>=2.4.1
