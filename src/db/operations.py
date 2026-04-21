@@ -606,7 +606,7 @@ def get_conversation_context(sender_id: str, max_messages: int = 10) -> str:
             messages_list = session.exec(
                 select(Message)
                 .where(Message.conversation_id == conversation.id)
-                .order_by(desc(Message.created_at))  # DESC: Mới nhất lên đầu
+                .order_by(desc(Message.created_at))
                 .limit(max_messages)
             ).all()
             
