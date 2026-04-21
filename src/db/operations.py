@@ -602,7 +602,7 @@ def get_conversation_context(sender_id: str, max_messages: int = 10) -> str:
                 return ""
             print(f"✅ [Context] Tìm thấy conversation #{conversation.id}")
             
-            # Bước 3: Lấy N tin nhắn MỚI NHẤT, sắp xếp từ cũ -> mới
+            # Bước 3: Lấy N tin nhắn MỚI NHẤT (DESC), sau đó sẽ đảo ngược lại
             messages_list = session.exec(
                 select(Message)
                 .where(Message.conversation_id == conversation.id)
@@ -614,7 +614,10 @@ def get_conversation_context(sender_id: str, max_messages: int = 10) -> str:
                 print(f"⚠️ [Context] Không có tin nhắn trong conversation #{conversation.id}")
                 return ""
             
-            print(f"✅ [Context] Lấy được {len(messages_list)} tin nhắn")
+            # Đảo ngược lại để hiển thị từ cũ -> mới cho AI đọc
+            messages_list.reverse()
+            
+            print(f"✅ [Context] Lấy được {len(messages_list)} tin nhắn mới nhất")
             
             # Bước 4: Tạo format context
             history_lines = ["📋 Lịch sử trò chuyện gần đây:"]
@@ -625,7 +628,9 @@ def get_conversation_context(sender_id: str, max_messages: int = 10) -> str:
                     history_lines.append(f"🤖 [{i}] Bot: {msg.content[:100]}..." if len(msg.content) > 100 else f"🤖 [{i}] Bot: {msg.content}")
             
             result = "\n".join(history_lines)
-            print(f"✅ [Context] Trả về context ({len(result)} ký tự)")
+            print("\n" + "="*50)
+            print(result)
+            print("="*50 + "\n")
             return result
         
         except Exception as e:
