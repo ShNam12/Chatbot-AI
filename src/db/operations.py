@@ -81,6 +81,13 @@ def insert_vector_faq(category: str, sub_category: str, content: str, embedding:
         session.add(faq)
         session.commit()
 
+def get_faq_by_subcategory(sub_category: str) -> Optional[str]:
+    """Lấy nội dung FAQ dựa trên sub_category (không dùng vector)"""
+    with Session(engine) as session:
+        statement = select(VectorFAQ.content).where(VectorFAQ.sub_category == sub_category)
+        result = session.exec(statement).first()
+        return result
+
 
 # ==================== BRANCH & LOCATION OPERATIONS (From File 1) ====================
 
