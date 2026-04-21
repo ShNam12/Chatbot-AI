@@ -558,15 +558,20 @@ def get_conversation_context(sender_id: str, max_messages: int = 10) -> str:
             if not conversation:
                 return ""
             
-            messages = session.exec(
+            # Lấy N tin nhắn MỚI NHẤT (DESC)
+            messages_list = session.exec(
                 select(Message)
                 .where(Message.conversation_id == conversation.id)
-                .order_by(Message.created_at)
+                .order_by(desc(Message.created_at))
                 .limit(max_messages)
             ).all()
             
-            if not messages:
+            if not messages_list:
                 return ""
+            
+            # Đảo ngược lại để AI đọc theo đúng thứ tự thời gian (Cũ -> Mới)
+            messages = list(messages_list)
+            messages.reverse()
             
             history_lines = ["📋 Lịch sử trò chuyện gần đây:"]
             for msg in messages:
