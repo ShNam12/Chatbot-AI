@@ -36,17 +36,31 @@ print("🧬 Kết nối Gemini Embeddings qua Utils")
 embeddings_model = get_embeddings_model()
 
 def retrival_data(query):
-    print("--- TOOL CALL: RETRIEVING CONTEXT FROM POSTGRES (ORM) ---")
+    print(f"--- TOOL CALL: RETRIEVING CONTEXT FOR: {query} ---")
     
-    # 1. Tạo embedding từ query người dùng qua Gemini
     try:
+        # KIỂM TRA: Nếu tìm overview, hãy thử tìm chính xác theo sub_category trước
+        if "overview" in query.lower():
+            # Tách tên môn (ví dụ: overview Gym -> Gym)
+            service_name = query.lower().replace("overview", "").strip()
+            # Ánh xạ tên môn sang đúng nhãn sub_category trong DB
+            from src.db.operations import get_faq_by_subcategory
+            db_overview = get_faq_by_subcategory(service_name.capitalize()) or get_faq_by_subcategory(service_name.upper()) or get_faq_by_subcategory(service_name)
+            
+            if db_overview:
+                print(f"🎯 Đã tìm thấy chính xác Overview cho môn {service_name}")
+                return {"context": db_overview, "source": "overview_match"}
+
+        # Nếu không tìm thấy đích danh, quay lại dùng tìm kiếm Vector như cũ
         query_embedding = embeddings_model.embed_query(query)
-        
-        # 2. Tìm kiếm vector trong PostgreSQL qua Operations
-        results = search_faq(query_embedding, limit=2) # Tăng limit để AI có nhiều context hơn
+        results = search_faq(query_embedding, limit=10)
         
         if results:
-            context_text = "\n---\n".join(results)
+            hard_rule_results = [r for r in results if "[QUY TẮC CỨNG" in r]
+            if hard_rule_results:
+                return {"context": hard_rule_results[0], "source": "overview_vect"}
+            
+            context_text = "\n---\n".join(results[:2])
         else:
             context_text = "Không tìm thấy thông tin liên quan trong cơ sở dữ liệu."
             
@@ -128,10 +142,11 @@ AGENT_PROFILES = {
 
 prompt_template = ChatPromptTemplate.from_messages([
     ("system", "Bạn là {role}"),
-    ("system", "Bạn có thể truy cập các hành động sau:\n{tools_list}"),
-    ("human", "Câu hỏi của người dùng: {query}"),
-    ("system", "Phản hồi trước của agent:\n{last_agent_response}"),
-    ("system", "Quan sát công cụ trước đó:\n{tool_observations}"),
+    ("system", "HÀNH ĐỘNG CÓ THỂ SỬ DỤNG:\n{tools_list}"),
+    ("human", "CÂU HỎI CỦA NGƯỜI DÙNG: {query}"),
+    ("system", "HÀNH ĐỘNG VỪA THỰC HIỆN: {last_agent_response}"),
+    ("system", "KẾT QUẢ TỪ CƠ SỞ DỮ LIỆU:\n{tool_observations}"),
+    ("system", "HƯỚNG DẪN QUAN TRỌNG: Nếu KẾT QUẢ TỪ CƠ SỞ DỮ LIỆU đã chứa thông tin chuẩn, bạn BẮT BUỘC phải dùng nó để TRẢ LỜI (ANSWER) ngay. TUYỆT ĐỐI KHÔNG được lặp lại HÀNH ĐỘNG (ACTION) cũ."),
     ("system", "{system_instruction}")
 ])
 
@@ -149,7 +164,7 @@ def call_agent(state: dict, agent_name: str) -> dict:
     state["last_agent_response"] = response.content
     state["last_agent"] = agent_name
     state["num_steps"] += 1
-    print(f"\n=== 🤖{agent_name.upper()} ===\n{response.content}")
+    print(f"\n=== {agent_name.upper()} ===\n{response.content}")
     return state
 
 def call_tool(state: dict) -> dict:
