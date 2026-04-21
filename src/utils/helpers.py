@@ -9,13 +9,21 @@ from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
 
 
-def extract_phone(text):
+import re
+
+def extract_phone(text: str) -> Optional[str | bool]:
+    """Trích xuất số điện thoại từ text
+    Return: 
+      - str: Số điện thoại hợp lệ (0xxxxxxxxx)
+      - False: Tìm thấy nhưng format sai
+      - None: Không tìm thấy
+    """
     pattern = r'(?:\+84|84|0)(?:\d[\s\.-]?){8,9}\d'
     match = re.search(pattern, text)
     
     if not match:
-        return None
-
+        return None  # Không tìm thấy
+    
     phone = match.group(0)
 
     # 🔧 normalize: xoá space, dấu
@@ -26,8 +34,12 @@ def extract_phone(text):
         phone = "0" + phone[3:]
     elif phone.startswith("84"):
         phone = "0" + phone[2:]
+    
+    # ❌ validate: reject đầu số sai hoặc độ dài sai
+    if phone.startswith(("00", "01", "02", "04", "06")) or len(phone) != 10:
+        return False  # Tìm nhưng sai format
 
-    return phone
+    return phone  # Hợp lệ
 
 def detect_and_update_interest(user_id: str, user_text: str, store: dict) -> list:
     """Phát hiện sở thích của khách hàng dựa trên tin nhắn"""
