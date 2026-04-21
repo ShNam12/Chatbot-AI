@@ -132,22 +132,22 @@ def process_message(body):
 
                     send_sender_action(sender_id, "typing_on")
 
-                    # 📍 Ghi nhớ vị trí (Từ File 2)
+                    # Ghi nhớ vị trí (Từ File 2)
                     try:
                         location_result = handle_location_memory(sender_id, message_text)
                         print(f"[Location memory] {location_result}")
                     except Exception as e:
                         print(f"[Location memory] Bỏ qua do lỗi: {e}")
                     
-                    # 🧠 Lấy context lịch sử chat để AI hiểu được hội thoại (Từ File 1)
+                    # Lấy context lịch sử chat để AI hiểu được hội thoại (Từ File 1)
                     conversation_context = get_conversation_context(sender_id, max_messages=8)
                     
-                    # 🤖 Gọi AI với context (Gộp parameter của cả 2 file: sender_id và user_context)
+                    #  Gọi AI với context (Gộp parameter của cả 2 file: sender_id và user_context)
                     ai_reply = get_agent_response(message_text, sender_id=sender_id, user_context=conversation_context)
                     
                     send_sender_action(sender_id, "typing_off")
                     
-                    # 💾 SAVE BOT MESSAGE TO DATABASE (Từ File 1)
+                    # SAVE BOT MESSAGE TO DATABASE (Từ File 1)
                     try:
                         save_bot_message(
                             sender_id=sender_id,
