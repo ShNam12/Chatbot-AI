@@ -143,7 +143,7 @@ def call_agent(state: dict, agent_name: str) -> dict:
         "system_instruction": profile["system_instruction"],
         "query": state.get("query", ""),
         "last_agent_response": state.get("last_agent_response", ""),
-        "tool_observations": "\n".join(state.get("tool_obervations", [])),
+        "tool_observations": "\n".join(state.get("tool_observations", [])),
         "tools_list": profile["tool_list"]
     })
     state["last_agent_response"] = response.content
@@ -176,13 +176,13 @@ def call_tool(state: dict) -> dict:
             pass
 
     if not tool_name:
-        state.setdefault("tool_obervations", []).append(f"[No action found by {agent_name}]")
+        state.setdefault("tool_observations", []).append(f"[No action found by {agent_name}]")
         return state
 
     allowed_tools = [tool["name"] for tool in AGENT_TOOLS_LIST.get(agent_name, [])]
     if tool_name not in allowed_tools:
         msg = f"[Tool '{tool_name}' NOT allowed for {agent_name}]"
-        state.setdefault("tool_obervations", []).append(msg)
+        state.setdefault("tool_observations", []).append(msg)
         return state
         
     if tool_name == "search_address":
@@ -192,13 +192,13 @@ def call_tool(state: dict) -> dict:
 
     tool_func = TOOL_MAPPING.get(tool_name)
     if not tool_func:
-        state.setdefault("tool_obervations", []).append("[Unknown tool]")
+        state.setdefault("tool_observations", []).append("[Unknown tool]")
         return state
     results = tool_func(**args)
     if results and isinstance(results, dict):
-        state.setdefault("tool_obervations", []).append(f"[{tool_name} results: {results.get('context')}]")
+        state.setdefault("tool_observations", []).append(f"[{tool_name} results: {results.get('context')}]")
     else:
-        state.setdefault("tool_obervations", []).append(f"[{tool_name} trả về kết quả không hợp lệ]")
+        state.setdefault("tool_observations", []).append(f"[{tool_name} trả về kết quả không hợp lệ]")
     return state
 
 def should_continue(state: dict) -> str:
@@ -217,7 +217,7 @@ class AgentState(TypedDict):
     sender_id: str 
     last_agent_response: str
     last_agent: str
-    tool_obervations: list
+    tool_observations: list
     num_steps: int
 
 workflow_m = StateGraph(AgentState)
@@ -241,7 +241,7 @@ def get_agent_response(user_text: str, sender_id: str, user_context: str = "", m
         "query": query_with_context,
         "sender_id": sender_id,
         "last_agent_response": "",
-        "tool_obervations": [],
+        "tool_observations": [],
         "num_steps": 0,
     }
     
