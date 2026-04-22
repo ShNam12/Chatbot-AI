@@ -8,13 +8,16 @@ from . import models  # noqa: F401 - cần import để SQLModel.metadata biết
 
 load_dotenv()
 
-DB_USER = os.getenv("DB_USER")
-DB_PASSWORD = os.getenv("DB_PASSWORD")
-DB_HOST = os.getenv("DB_HOST")
-DB_PORT = os.getenv("DB_PORT")
-DB_NAME = os.getenv("DB_NAME")
+# Ưu tiên lấy full URL nếu có (chuẩn Render/Neon), nếu không mới ghép từ các biến lẻ
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}?sslmode=require"
+if not DATABASE_URL:
+    DB_USER = os.getenv("DB_USER")
+    DB_PASSWORD = os.getenv("DB_PASSWORD")
+    DB_HOST = os.getenv("DB_HOST")
+    DB_PORT = os.getenv("DB_PORT")
+    DB_NAME = os.getenv("DB_NAME")
+    DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}?sslmode=require"
 
 # pool_pre_ping=True: Tự động kiểm tra và kết nối lại nếu DB ngắt kết nối (thường gặp ở Neon/Cloud DB)
 # pool_recycle=300: Tạo mới kết nối sau mỗi 5 phút để tránh bị timeout
