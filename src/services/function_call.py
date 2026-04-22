@@ -36,17 +36,31 @@ print("🧬 Kết nối Gemini Embeddings qua Utils")
 embeddings_model = get_embeddings_model()
 
 def retrival_data(query):
-    print("--- TOOL CALL: RETRIEVING CONTEXT FROM POSTGRES (ORM) ---")
+    print(f"--- TOOL CALL: RETRIEVING CONTEXT FOR: {query} ---")
     
-    # 1. Tạo embedding từ query người dùng qua Gemini
     try:
+        # KIỂM TRA: Nếu tìm overview, hãy thử tìm chính xác theo sub_category trước
+        if "overview" in query.lower():
+            # Tách tên môn (ví dụ: overview Gym -> Gym)
+            service_name = query.lower().replace("overview", "").strip()
+            # Ánh xạ tên môn sang đúng nhãn sub_category trong DB
+            from src.db.operations import get_faq_by_subcategory
+            db_overview = get_faq_by_subcategory(service_name.capitalize()) or get_faq_by_subcategory(service_name.upper()) or get_faq_by_subcategory(service_name)
+            
+            if db_overview:
+                print(f"🎯 Đã tìm thấy chính xác Overview cho môn {service_name}")
+                return {"context": db_overview, "source": "overview_match"}
+
+        # Nếu không tìm thấy đích danh, quay lại dùng tìm kiếm Vector như cũ
         query_embedding = embeddings_model.embed_query(query)
-        
-        # 2. Tìm kiếm vector trong PostgreSQL qua Operations
-        results = search_faq(query_embedding, limit=2) # Tăng limit để AI có nhiều context hơn
+        results = search_faq(query_embedding, limit=10)
         
         if results:
-            context_text = "\n---\n".join(results)
+            hard_rule_results = [r for r in results if "[QUY TẮC CỨNG" in r]
+            if hard_rule_results:
+                return {"context": hard_rule_results[0], "source": "overview_vect"}
+            
+            context_text = "\n---\n".join(results[:2])
         else:
             context_text = "Không tìm thấy thông tin liên quan trong cơ sở dữ liệu."
             
@@ -128,10 +142,12 @@ AGENT_PROFILES = {
 
 prompt_template = ChatPromptTemplate.from_messages([
     ("system", "Bạn là {role}"),
-    ("system", "Bạn có thể truy cập các hành động sau:\n{tools_list}"),
-    ("human", "Câu hỏi của người dùng: {query}"),
-    ("system", "Phản hồi trước của agent:\n{last_agent_response}"),
-    ("system", "Quan sát công cụ trước đó:\n{tool_observations}"),
+    ("system", "HÀNH ĐỘNG CÓ THỂ SỬ DỤNG:\n{tools_list}"),
+    ("human", "CÂU HỎI CỦA NGƯỜI DÙNG: {query}"),
+    ("system", "HÀNH ĐỘNG VỪA THỰC HIỆN: {last_agent_response}"),
+    ("system", "KẾT QUẢ TỪ CƠ SỞ DỮ LIỆU:\n{tool_observations}"),
+    ("system", "HƯỚNG DẪN QUAN TRỌNG: Nếu KẾT QUẢ TỪ CƠ SỞ DỮ LIỆU đã chứa thông tin chuẩn, bạn BẮT BUỘC phải dùng nó để TRẢ LỜI (ANSWER) ngay. TUYỆT ĐỐI KHÔNG được lặp lại HÀNH ĐỘNG (ACTION) cũ."),
+    ("system", "TRẠNG THÁI HỆ THỐNG: can_ask_phone={can_ask_phone}"),
     ("system", "{system_instruction}")
 ])
 
@@ -143,13 +159,14 @@ def call_agent(state: dict, agent_name: str) -> dict:
         "system_instruction": profile["system_instruction"],
         "query": state.get("query", ""),
         "last_agent_response": state.get("last_agent_response", ""),
-        "tool_observations": "\n".join(state.get("tool_obervations", [])),
-        "tools_list": profile["tool_list"]
+        "tool_observations": "\n".join(state.get("tool_observations", [])),
+        "tools_list": profile["tool_list"],
+        "can_ask_phone": state.get("can_ask_phone", True)
     })
     state["last_agent_response"] = response.content
     state["last_agent"] = agent_name
     state["num_steps"] += 1
-    print(f"\n=== 🤖{agent_name.upper()} ===\n{response.content}")
+    print(f"\n=== {agent_name.upper()} ===\n{response.content}")
     return state
 
 def call_tool(state: dict) -> dict:
@@ -176,13 +193,13 @@ def call_tool(state: dict) -> dict:
             pass
 
     if not tool_name:
-        state.setdefault("tool_obervations", []).append(f"[No action found by {agent_name}]")
+        state.setdefault("tool_observations", []).append(f"[No action found by {agent_name}]")
         return state
 
     allowed_tools = [tool["name"] for tool in AGENT_TOOLS_LIST.get(agent_name, [])]
     if tool_name not in allowed_tools:
         msg = f"[Tool '{tool_name}' NOT allowed for {agent_name}]"
-        state.setdefault("tool_obervations", []).append(msg)
+        state.setdefault("tool_observations", []).append(msg)
         return state
         
     if tool_name == "search_address":
@@ -192,13 +209,13 @@ def call_tool(state: dict) -> dict:
 
     tool_func = TOOL_MAPPING.get(tool_name)
     if not tool_func:
-        state.setdefault("tool_obervations", []).append("[Unknown tool]")
+        state.setdefault("tool_observations", []).append("[Unknown tool]")
         return state
     results = tool_func(**args)
     if results and isinstance(results, dict):
-        state.setdefault("tool_obervations", []).append(f"[{tool_name} results: {results.get('context')}]")
+        state.setdefault("tool_observations", []).append(f"[{tool_name} results: {results.get('context')}]")
     else:
-        state.setdefault("tool_obervations", []).append(f"[{tool_name} trả về kết quả không hợp lệ]")
+        state.setdefault("tool_observations", []).append(f"[{tool_name} trả về kết quả không hợp lệ]")
     return state
 
 def should_continue(state: dict) -> str:
@@ -217,8 +234,9 @@ class AgentState(TypedDict):
     sender_id: str 
     last_agent_response: str
     last_agent: str
-    tool_obervations: list
+    tool_observations: list
     num_steps: int
+    can_ask_phone: bool
 
 workflow_m = StateGraph(AgentState)
 workflow_m.add_node("agent_main", lambda s: call_agent(s, "agent_main"))
@@ -230,7 +248,7 @@ workflow_m.add_conditional_edges("agent_diachi", should_continue, {"continue": "
 workflow_m.add_conditional_edges("tools", which_agents, {"agent_main": "agent_main", "agent_diachi": "agent_diachi"})
 agentic_graph_m = workflow_m.compile()
 
-def get_agent_response(user_text: str, sender_id: str, user_context: str = "", max_retries: int = 3) -> str:
+def get_agent_response(user_text: str, sender_id: str, user_context: str = "", max_retries: int = 3, **kwargs) -> str:
     """Gọi AI agent để lấy response"""
     if user_context and user_context.strip():
         query_with_context = f"{user_context}\n\n[Câu hỏi mới]: {user_text}"
@@ -241,8 +259,9 @@ def get_agent_response(user_text: str, sender_id: str, user_context: str = "", m
         "query": query_with_context,
         "sender_id": sender_id,
         "last_agent_response": "",
-        "tool_obervations": [],
+        "tool_observations": [],
         "num_steps": 0,
+        "can_ask_phone": kwargs.get("can_ask_phone", True)
     }
     
     for attempt in range(max_retries):

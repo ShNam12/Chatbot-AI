@@ -7,7 +7,7 @@ from src.services.function_call import get_agent_response
 from src.db.operations import (
     save_conversation, should_send_overview, mark_overview_sent, 
     save_user_message, save_bot_message, get_conversation_context, 
-    update_last_bot_message_time
+    update_last_bot_message_time, can_ask_phone
 )
 from src.services.ggsheet_service import save_to_sheet
 from src.config.overview_config import OVERVIEW_NESSAGE, IMAGE_OR_VIDEO, OVERVIEW_IMAGE_URL, OVERVIEW_VIDEO_URL
@@ -105,7 +105,30 @@ def process_message(body):
                     print(f"🎯 Interest: {interest_str}")
                     phone = extract_phone(message_text)
 
-                    # 💾 SAVE USER MESSAGE TO DATABASE
+                    # ========== XỬ LÝ SỐ ĐIỆN THOẠI ==========
+                    if phone is False:
+                        # 🚫 Tìm thấy nhưng SĐT sai format → Báo lỗi, yêu cầu nhập lại
+                        print("❌ SĐT không hợp lệ (sai format)")
+                        error_msg = "❌ Xin lỗi, số điện thoại bạn nhập không hợp lệ. Vui lòng nhập lại số điện thoại hợp lệ (0xxxxxxxxx)"
+                        send_message_to_facebook(sender_id, error_msg, customer_name)
+                        continue  # Không lưu DB, không gọi AI
+                    
+                    elif phone is not None and isinstance(phone, str):
+                        # ✅ Tìm thấy và SĐT hợp lệ → Lưu sheet + Cảm ơn
+                        print(f"📞 Phát hiện SĐT hợp lệ: {phone}")
+                        try:
+                            save_to_sheet(customer_name, phone, interest_str)
+                            print(f"✅ Đã lưu vào Google Sheet")
+                            send_thank_you_message(sender_id)
+                        except Exception as e:
+                            print(f"❌ Lỗi lưu Google Sheet: {e}")
+                        continue  # Không lưu DB, không gọi AI
+                    
+                    # else: phone is None → Không tìm thấy SĐT → Continue với normal flow
+                    else:
+                        print(f"⚠️ Không phát hiện SĐT trong tin nhắn")
+
+                    # 💾 SAVE USER MESSAGE TO DATABASE (Với phone=None nếu không tìm thấy)
                     try:
                         save_user_message(
                             sender_id=sender_id,
@@ -114,21 +137,11 @@ def process_message(body):
                             message_id=message_id,
                             page_id=recipient_id,
                             interest=interest_str if interest else None,
-                            phone=phone
+                            phone=phone if isinstance(phone, str) else None
                         )
                         print(f"✅ [ChatHistory] Đã lưu user message")
                     except Exception as e:
                         print(f"❌ [ChatHistory] Lỗi lưu user message: {e}")
-
-                    if phone:
-                        print(f"📞 Phát hiện SĐT: {phone}")
-                        try:
-                            save_to_sheet(customer_name, phone, interest_str)
-                            print("✅ Đã lưu vào Google Sheet")
-                            send_thank_you_message(sender_id)
-                        except Exception as e:
-                            print(f"❌ Lỗi lưu Google Sheet: {e}")
-                        continue
 
                     send_sender_action(sender_id, "typing_on")
 
@@ -139,15 +152,23 @@ def process_message(body):
                     except Exception as e:
                         print(f"[Location memory] Bỏ qua do lỗi: {e}")
                     
-                    # 🧠 Lấy context lịch sử chat để AI hiểu được hội thoại (Từ File 1)
+                    # Lấy context lịch sử chat để AI hiểu được hội thoại (Từ File 1)
                     conversation_context = get_conversation_context(sender_id, max_messages=8)
                     
-                    # 🤖 Gọi AI với context (Gộp parameter của cả 2 file: sender_id và user_context)
-                    ai_reply = get_agent_response(message_text, sender_id=sender_id, user_context=conversation_context)
+                    # Kiểm tra trạng thái có được hỏi SĐT không để tránh spam khách hàng (Anti-Spam)
+                    ask_phone_flag = can_ask_phone(sender_id)
+                    
+                    #  Gọi AI với context và trạng thái SĐT
+                    ai_reply = get_agent_response(
+                        message_text, 
+                        sender_id=sender_id, 
+                        user_context=conversation_context,
+                        can_ask_phone=ask_phone_flag
+                    )
                     
                     send_sender_action(sender_id, "typing_off")
                     
-                    # 💾 SAVE BOT MESSAGE TO DATABASE (Từ File 1)
+                    # SAVE BOT MESSAGE TO DATABASE (Từ File 1)
                     try:
                         save_bot_message(
                             sender_id=sender_id,
