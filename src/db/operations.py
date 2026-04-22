@@ -692,3 +692,42 @@ def update_last_bot_message_time(sender_id: str):
             session.add(user_session)
             session.commit()
             print(f"✅ [Operations] Updated last bot message time for {sender_id}")
+
+def can_ask_phone(sender_id: str) -> bool:
+    """Kiểm tra xem Bot có thể hỏi SĐT của khách hàng lúc này không (Anti-spam)"""
+    with Session(engine) as session:
+        # 1. Kiểm tra xem khách đã có SĐT trong DB chưa
+        user = session.exec(select(User).where(User.sender_id == sender_id)).first()
+        if user and user.phone:
+            print(f"🚫 [Anti-Spam] Khách {sender_id} đã có SĐT trong DB. Không hỏi thêm.")
+            return False
+            
+        # 2. Kiểm tra xem Bot có vừa mới hỏi SĐT trong các tin nhắn bot gần đây không
+        # Tìm conversation active
+        conversation = session.exec(
+            select(Conversation)
+            .join(User)
+            .where(User.sender_id == sender_id, Conversation.ended_at.is_(None))
+            .order_by(desc(Conversation.started_at))
+        ).first()
+        
+        if not conversation:
+            return True
+            
+        # Lấy 3 tin nhắn gần nhất của Bot trong cuộc hội thoại này
+        last_bot_messages = session.exec(
+            select(Message)
+            .where(Message.conversation_id == conversation.id, Message.message_type == "bot")
+            .order_by(desc(Message.created_at))
+            .limit(3)
+        ).all()
+        
+        keywords = ["SĐT", "SDT", "số điện thoại", "Zalo", "liên hệ trực tiếp", "xin số"]
+        for msg in last_bot_messages:
+            for kw in keywords:
+                if kw.lower() in msg.content.lower():
+                    print(f"🚫 [Anti-Spam] Bot vừa hỏi SĐT ở tin nhắn gần đây. Tạm dừng hỏi.")
+                    return False
+        
+        print(f"✅ [Anti-Spam] Cho phép hỏi SĐT nếu cần thiết.")
+        return True
