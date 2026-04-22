@@ -3,7 +3,11 @@ from datetime import datetime, timedelta
 from sqlmodel import Session, select, text
 from .database import engine
 # Đã gộp toàn bộ models của cả 2 file
-from .models import UserSession, VectorFAQ, EmsBranch, User, Conversation, Message    
+from src.db.models import (
+    UserSession, VectorFAQ, EmsBranch, User, Conversation, Message,
+    FacebookPage
+)
+    
 from pgvector.sqlalchemy import Vector
 # Đã thêm desc từ file 2
 from sqlalchemy import cast, func, desc
@@ -731,3 +735,49 @@ def can_ask_phone(sender_id: str) -> bool:
         
         print(f"✅ [Anti-Spam] Cho phép hỏi SĐT nếu cần thiết.")
         return True
+
+# --- MULTI-TENANT FANPAGE CACHE ---
+_page_token_cache = {}
+
+def get_page_token(page_id: str) -> Optional[str]:
+    """Lấy Access Token của Fanpage dựa trên Page ID (Có cache)"""
+    # 1. Thử lấy từ Cache
+    if page_id in _page_token_cache:
+        return _page_token_cache[page_id]
+        
+    # 2. Truy vấn Database
+    with Session(engine) as session:
+        statement = select(FacebookPage).where(FacebookPage.page_id == page_id, FacebookPage.is_active == True)
+        page = session.exec(statement).first()
+        
+        if page:
+            token = page.access_token
+            _page_token_cache[page_id] = token # Lưu vào cache
+            return token
+            
+    print(f"⚠️ [Multi-tenant] Không tìm thấy Token cho Page ID: {page_id}")
+    return None
+
+def add_facebook_page(page_id: str, access_token: str, page_name: str = None):
+    """Thêm hoặc cập nhật Fanpage vào Database"""
+    with Session(engine) as session:
+        statement = select(FacebookPage).where(FacebookPage.page_id == page_id)
+        page = session.exec(statement).first()
+        
+        if page:
+            page.access_token = access_token
+            page.page_name = page_name
+            page.updated_at = datetime.now()
+        else:
+            page = FacebookPage(
+                page_id=page_id,
+                access_token=access_token,
+                page_name=page_name
+            )
+        
+        session.add(page)
+        session.commit()
+        # Xóa cache để cập nhật dữ liệu mới
+        if page_id in _page_token_cache:
+            del _page_token_cache[page_id]
+        print(f"✅ [Multi-tenant] Đã lưu Fanpage: {page_name or page_id}")
