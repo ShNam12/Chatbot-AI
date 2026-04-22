@@ -147,6 +147,7 @@ prompt_template = ChatPromptTemplate.from_messages([
     ("system", "HÀNH ĐỘNG VỪA THỰC HIỆN: {last_agent_response}"),
     ("system", "KẾT QUẢ TỪ CƠ SỞ DỮ LIỆU:\n{tool_observations}"),
     ("system", "HƯỚNG DẪN QUAN TRỌNG: Nếu KẾT QUẢ TỪ CƠ SỞ DỮ LIỆU đã chứa thông tin chuẩn, bạn BẮT BUỘC phải dùng nó để TRẢ LỜI (ANSWER) ngay. TUYỆT ĐỐI KHÔNG được lặp lại HÀNH ĐỘNG (ACTION) cũ."),
+    ("system", "TRẠNG THÁI HỆ THỐNG: can_ask_phone={can_ask_phone}"),
     ("system", "{system_instruction}")
 ])
 
@@ -159,7 +160,8 @@ def call_agent(state: dict, agent_name: str) -> dict:
         "query": state.get("query", ""),
         "last_agent_response": state.get("last_agent_response", ""),
         "tool_observations": "\n".join(state.get("tool_observations", [])),
-        "tools_list": profile["tool_list"]
+        "tools_list": profile["tool_list"],
+        "can_ask_phone": state.get("can_ask_phone", True)
     })
     state["last_agent_response"] = response.content
     state["last_agent"] = agent_name
@@ -234,6 +236,7 @@ class AgentState(TypedDict):
     last_agent: str
     tool_observations: list
     num_steps: int
+    can_ask_phone: bool
 
 workflow_m = StateGraph(AgentState)
 workflow_m.add_node("agent_main", lambda s: call_agent(s, "agent_main"))
@@ -245,7 +248,7 @@ workflow_m.add_conditional_edges("agent_diachi", should_continue, {"continue": "
 workflow_m.add_conditional_edges("tools", which_agents, {"agent_main": "agent_main", "agent_diachi": "agent_diachi"})
 agentic_graph_m = workflow_m.compile()
 
-def get_agent_response(user_text: str, sender_id: str, user_context: str = "", max_retries: int = 3) -> str:
+def get_agent_response(user_text: str, sender_id: str, user_context: str = "", max_retries: int = 3, **kwargs) -> str:
     """Gọi AI agent để lấy response"""
     if user_context and user_context.strip():
         query_with_context = f"{user_context}\n\n[Câu hỏi mới]: {user_text}"
@@ -258,6 +261,7 @@ def get_agent_response(user_text: str, sender_id: str, user_context: str = "", m
         "last_agent_response": "",
         "tool_observations": [],
         "num_steps": 0,
+        "can_ask_phone": kwargs.get("can_ask_phone", True)
     }
     
     for attempt in range(max_retries):

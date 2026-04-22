@@ -7,7 +7,7 @@ from src.services.function_call import get_agent_response
 from src.db.operations import (
     save_conversation, should_send_overview, mark_overview_sent, 
     save_user_message, save_bot_message, get_conversation_context, 
-    update_last_bot_message_time
+    update_last_bot_message_time, can_ask_phone
 )
 from src.services.ggsheet_service import save_to_sheet
 from src.config.overview_config import OVERVIEW_NESSAGE, IMAGE_OR_VIDEO, OVERVIEW_IMAGE_URL, OVERVIEW_VIDEO_URL
@@ -155,8 +155,16 @@ def process_message(body):
                     # Lấy context lịch sử chat để AI hiểu được hội thoại (Từ File 1)
                     conversation_context = get_conversation_context(sender_id, max_messages=8)
                     
-                    #  Gọi AI với context (Gộp parameter của cả 2 file: sender_id và user_context)
-                    ai_reply = get_agent_response(message_text, sender_id=sender_id, user_context=conversation_context)
+                    # Kiểm tra trạng thái có được hỏi SĐT không để tránh spam khách hàng (Anti-Spam)
+                    ask_phone_flag = can_ask_phone(sender_id)
+                    
+                    #  Gọi AI với context và trạng thái SĐT
+                    ai_reply = get_agent_response(
+                        message_text, 
+                        sender_id=sender_id, 
+                        user_context=conversation_context,
+                        can_ask_phone=ask_phone_flag
+                    )
                     
                     send_sender_action(sender_id, "typing_off")
                     
