@@ -7,8 +7,11 @@ from src.services.function_call import get_agent_response
 from src.db.operations import (
     save_conversation, should_send_overview, mark_overview_sent, 
     save_user_message, save_bot_message, get_conversation_context, 
-    update_last_bot_message_time, can_ask_phone
+    update_last_bot_message_time, can_ask_phone, get_page_token,
+    add_facebook_page, engine
 )
+from sqlmodel import Session, select
+from src.db.models import FacebookPage
 from src.services.ggsheet_service import save_to_sheet
 from src.config.overview_config import OVERVIEW_NESSAGE, IMAGE_OR_VIDEO, OVERVIEW_IMAGE_URL, OVERVIEW_VIDEO_URL
 from src.config.settings import FB_GRAPH_BASE_URL, FB_GRAPH_VERSION
@@ -17,7 +20,7 @@ from src.utils.helpers import extract_phone, detect_and_update_interest
 
 from dotenv import load_dotenv
 load_dotenv()
-PAGE_ACCESS_TOKEN = os.getenv("PAGE_ACCESS_TOKEN")
+PAGE_ACCESS_TOKEN_FALLBACK = os.getenv("PAGE_ACCESS_TOKEN")
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
 
 user_interest_store = {}
@@ -33,9 +36,9 @@ async def verify_webhook(request: Request):
         return Response(content=challenge, media_type="text/plain")
     return Response(content="Xác minh thất bại", status_code=403)
 
-def get_user_name(sender_id: str):
+def get_user_name(sender_id: str, access_token: str):
     """Lấy tên người dùng từ Facebook bằng PSID"""
-    url = f"https://graph.facebook.com/{sender_id}?fields=first_name,last_name,name&access_token={PAGE_ACCESS_TOKEN}"
+    url = f"https://graph.facebook.com/{sender_id}?fields=first_name,last_name,name&access_token={access_token}"
     print(f"DEBUG: Đang lấy tên cho sender_id: {sender_id}")
 
     try:
@@ -95,8 +98,14 @@ def process_message(body):
                 if sender_id and recipient_id and message_id:
                     save_conversation(sender_id, recipient_id, message_id)
 
-                customer_name = get_user_name(sender_id)
-                print(f"Khách hàng: {customer_name}")
+                # Lấy Token của Page này từ Database
+                access_token = get_page_token(recipient_id) or PAGE_ACCESS_TOKEN_FALLBACK
+                if not access_token:
+                    print(f"🛑 [Abort] Không tìm thấy Token cho Page {recipient_id}. Bỏ qua tin nhắn.")
+                    continue
+
+                customer_name = get_user_name(sender_id, access_token)
+                print(f"Khách hàng: {customer_name} (Page: {recipient_id})")
 
                 if "message" in messaging_event and "text" in messaging_event["message"]:
                     message_text = messaging_event["message"]["text"]
@@ -110,7 +119,7 @@ def process_message(body):
                         # 🚫 Tìm thấy nhưng SĐT sai format → Báo lỗi, yêu cầu nhập lại
                         print("❌ SĐT không hợp lệ (sai format)")
                         error_msg = "❌ Xin lỗi, số điện thoại bạn nhập không hợp lệ. Vui lòng nhập lại số điện thoại hợp lệ (0xxxxxxxxx)"
-                        send_message_to_facebook(sender_id, error_msg, customer_name)
+                        send_message_to_facebook(sender_id, error_msg, customer_name, page_id=recipient_id, access_token=access_token)
                         continue  # Không lưu DB, không gọi AI
                     
                     elif phone is not None and isinstance(phone, str):
@@ -119,7 +128,7 @@ def process_message(body):
                         try:
                             save_to_sheet(customer_name, phone, interest_str)
                             print(f"✅ Đã lưu vào Google Sheet")
-                            send_thank_you_message(sender_id)
+                            send_thank_you_message(sender_id, access_token=access_token)
                         except Exception as e:
                             print(f"❌ Lỗi lưu Google Sheet: {e}")
                         continue  # Không lưu DB, không gọi AI
@@ -143,7 +152,7 @@ def process_message(body):
                     except Exception as e:
                         print(f"❌ [ChatHistory] Lỗi lưu user message: {e}")
 
-                    send_sender_action(sender_id, "typing_on")
+                    send_sender_action(sender_id, "typing_on", access_token=access_token)
 
                     # 📍 Ghi nhớ vị trí (Từ File 2)
                     try:
@@ -166,7 +175,7 @@ def process_message(body):
                         can_ask_phone=ask_phone_flag
                     )
                     
-                    send_sender_action(sender_id, "typing_off")
+                    send_sender_action(sender_id, "typing_off", access_token=access_token)
                     
                     # SAVE BOT MESSAGE TO DATABASE (Từ File 1)
                     try:
@@ -181,7 +190,7 @@ def process_message(body):
                     except Exception as e:
                         print(f"❌ [ChatHistory] Lỗi lưu bot message: {e}")
                     
-                    send_message_to_facebook(sender_id, ai_reply, customer_name)
+                    send_message_to_facebook(sender_id, ai_reply, customer_name, page_id=recipient_id, access_token=access_token)
 
                     # Update last bot message time
                     update_last_bot_message_time(sender_id)
@@ -189,13 +198,16 @@ def process_message(body):
     except Exception as e:
         print(f"❌ Lỗi process_message: {e}")
 
-def send_text_message(recipient_id: str, text: str, customer_name: str = None):
+def send_text_message(recipient_id: str, text: str, customer_name: str = None, access_token: str = None):
+    if not access_token:
+        access_token = PAGE_ACCESS_TOKEN_FALLBACK
+        
     if not customer_name:
-        customer_name = get_user_name(recipient_id)
+        customer_name = get_user_name(recipient_id, access_token)
         
     full_message = text.format(tag_name=customer_name)
     url = f"{FB_GRAPH_BASE_URL}/me/messages"
-    params = {"access_token": PAGE_ACCESS_TOKEN}
+    params = {"access_token": access_token}
     payload = {
         "recipient": {"id": recipient_id},
         "message": {"text": full_message}
@@ -214,12 +226,15 @@ def send_text_message(recipient_id: str, text: str, customer_name: str = None):
         print(f"❌ Không thể kết nối tới Facebook API: {e}")
         return False
 
-def send_message_to_facebook(recipient_id: str, text: str, customer_name: str = None):
+def send_message_to_facebook(recipient_id: str, text: str, customer_name: str = None, page_id: str = None, access_token: str = None):
     try:
+        if not access_token and page_id:
+            access_token = get_page_token(page_id) or PAGE_ACCESS_TOKEN_FALLBACK
+
         if should_send_overview(recipient_id):
             print(f"📨 Chưa gửi overview trong 24h cho {recipient_id}, gửi overview trước")
-            overview_sent = send_text_message(recipient_id, OVERVIEW_NESSAGE, customer_name)
-            send_media(recipient_id)
+            overview_sent = send_text_message(recipient_id, OVERVIEW_NESSAGE, customer_name, access_token=access_token)
+            send_media(recipient_id, access_token=access_token)
             if overview_sent:
                 mark_overview_sent(recipient_id)
             else:
@@ -227,7 +242,7 @@ def send_message_to_facebook(recipient_id: str, text: str, customer_name: str = 
         else:
             print(f"✅ Đã gửi overview trong 24h cho {recipient_id}, bỏ qua overview")
 
-        reply_sent = send_text_message(recipient_id, text, customer_name)
+        reply_sent = send_text_message(recipient_id, text, customer_name, access_token=access_token)
         
         # Đảm bảo record update bot time chạy đúng ở đây nếu reply sent (Từ File 1)
         if reply_sent:
@@ -239,18 +254,19 @@ def send_message_to_facebook(recipient_id: str, text: str, customer_name: str = 
         print(type(e))
         print(f"❌ Lỗi trong send_message_to_facebook: {e}")
 
-def send_media(recipient_id: str):
+def send_media(recipient_id: str, access_token: str = None):
     if IMAGE_OR_VIDEO == "image":
-        return send_image_message(recipient_id, OVERVIEW_IMAGE_URL)
+        return send_image_message(recipient_id, OVERVIEW_IMAGE_URL, access_token=access_token)
     elif IMAGE_OR_VIDEO == "video":
-        return send_video_message(recipient_id, OVERVIEW_VIDEO_URL)
+        return send_video_message(recipient_id, OVERVIEW_VIDEO_URL, access_token=access_token)
     else:
         print("❌ MEDIA_TYPE không hợp lệ")
         return False
 
-def send_image_message(recipient_id: str, image_url: str):
+def send_image_message(recipient_id: str, image_url: str, access_token: str = None):
+    if not access_token: access_token = PAGE_ACCESS_TOKEN_FALLBACK
     url = f"{FB_GRAPH_BASE_URL}/me/messages"
-    params = {"access_token": PAGE_ACCESS_TOKEN}
+    params = {"access_token": access_token}
     payload = {
         "messaging_type": "RESPONSE",
         "recipient": {"id": recipient_id},
@@ -269,9 +285,10 @@ def send_image_message(recipient_id: str, image_url: str):
         print(f"❌ Lỗi gửi hình ảnh: {e}")
         return False
 
-def send_video_message(recipient_id: str, video_url: str):
+def send_video_message(recipient_id: str, video_url: str, access_token: str = None):
+    if not access_token: access_token = PAGE_ACCESS_TOKEN_FALLBACK
     url = f"{FB_GRAPH_BASE_URL}/me/messages"
-    params = {"access_token": PAGE_ACCESS_TOKEN}
+    params = {"access_token": access_token}
     payload = {
         "messaging_type": "RESPONSE",
         "recipient": {"id": recipient_id},
@@ -290,9 +307,10 @@ def send_video_message(recipient_id: str, video_url: str):
         print(f"❌ Lỗi gửi video: {e}")
         return False
 
-def send_thank_you_message(recipient_id: str):
+def send_thank_you_message(recipient_id: str, access_token: str = None):
+    if not access_token: access_token = PAGE_ACCESS_TOKEN_FALLBACK
     text = "Cảm ơn bạn đã để lại thông tin, chuyên viên EMS sẽ liên hệ với bạn sớm nhất có thể!"
-    url = f"{FB_GRAPH_BASE_URL}/me/messages?access_token={PAGE_ACCESS_TOKEN}"
+    url = f"{FB_GRAPH_BASE_URL}/me/messages?access_token={access_token}"
     payload = {
         "messaging_type": "RESPONSE",
         "recipient": {"id": recipient_id},
@@ -307,9 +325,10 @@ def send_thank_you_message(recipient_id: str):
         return False
 
 
-def send_sender_action(recipient_id: str, action: str):
+def send_sender_action(recipient_id: str, action: str, access_token: str = None):
+    if not access_token: access_token = PAGE_ACCESS_TOKEN_FALLBACK
     url = f"{FB_GRAPH_BASE_URL}/me/messages"
-    params = {"access_token": PAGE_ACCESS_TOKEN}
+    params = {"access_token": access_token}
     payload = {
         "recipient": {"id": recipient_id},
         "sender_action": action
@@ -320,3 +339,28 @@ def send_sender_action(recipient_id: str, action: str):
         requests.post(url, params=params, json=payload, headers=headers)
     except Exception as e:
         print(f"❌ Lỗi sender_action: {e}")
+
+# --- ADMIN API FOR MULTI-TENANT ---
+
+async def admin_list_pages(request: Request):
+    """Liệt kê toàn bộ Fanpage đang quản lý"""
+    # Bạn nên thêm một lớp bảo mật ở đây (ví dụ check x-api-key)
+    with Session(engine) as session:
+        pages = session.exec(select(FacebookPage)).all()
+        return {"total": len(pages), "pages": [p.dict() for p in pages]}
+
+async def admin_add_page(request: Request):
+    """Thêm hoặc cập nhật Token cho Fanpage"""
+    data = await request.json()
+    page_id = data.get("page_id")
+    token = data.get("access_token")
+    name = data.get("page_name")
+    
+    if not page_id or not token:
+        return {"error": "Thiếu page_id hoặc access_token"}, 400
+        
+    try:
+        add_facebook_page(page_id, token, name)
+        return {"status": "success", "message": f"Đã cập nhật Page {page_id}"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}, 500

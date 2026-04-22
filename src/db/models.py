@@ -134,3 +134,15 @@ class EmsBranch(SQLModel, table=True):
     latitude: Optional[float] = Field(default=None)
     longitude: Optional[float] = Field(default=None)
     is_active: bool = Field(default=True)
+
+class FacebookPage(SQLModel, table=True):
+    """Bảng lưu thông tin các Fanpage Facebook (Multi-tenant)"""
+    __tablename__ = "facebook_pages"
+    
+    page_id: str = Field(primary_key=True)  # ID Fanpage
+    page_name: Optional[str] = Field(default=None)
+    access_token: str = Field(index=True)   # Token truy cập của Page
+    is_active: bool = Field(default=True)
+    
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: Optional[datetime] = Field(default=None)

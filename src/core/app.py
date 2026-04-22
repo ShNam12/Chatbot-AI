@@ -5,7 +5,7 @@ import os
 
 # Import các thành phần nội bộ
 from src.db.database import init_db
-from src.api.routes import verify_webhook, receive_message
+from src.api.routes import verify_webhook, receive_message, admin_list_pages, admin_add_page
 
 # Load environment variables
 load_dotenv()
@@ -20,6 +20,10 @@ async def startup_event():
 # Đăng ký các route
 app.add_api_route("/webhook", verify_webhook, methods=["GET"])
 app.add_api_route("/webhook", receive_message, methods=["POST"])
+
+# Admin routes cho đa Fanpage
+app.add_api_route("/admin/pages", admin_list_pages, methods=["GET"])
+app.add_api_route("/admin/pages", admin_add_page, methods=["POST"])
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
