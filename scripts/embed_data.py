@@ -51,9 +51,7 @@ def embed_csv_data():
     for index, row in combined_df.iterrows():
         category = str(row.get('Category', ''))
         sub_category = str(row.get('Sub_Category', ''))
-        # intent = str(row.get('User_Query_Intent', ''))
         content = str(row.get('Information_Chunk', ''))
-        # keywords = str(row.get('Keywords', ''))
 
         # Tạo chuỗi văn bản đầy đủ để AI hiểu ngữ cảnh tốt hơn
         full_text = f"Category: {category} | Sub-Category: {sub_category} | Content: {content}"
