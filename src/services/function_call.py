@@ -248,8 +248,8 @@ workflow_m.add_conditional_edges("agent_diachi", should_continue, {"continue": "
 workflow_m.add_conditional_edges("tools", which_agents, {"agent_main": "agent_main", "agent_diachi": "agent_diachi"})
 agentic_graph_m = workflow_m.compile()
 
-def get_agent_response(user_text: str, sender_id: str, user_context: str = "", max_retries: int = 3, **kwargs) -> str:
-    """Gọi AI agent để lấy response"""
+async def get_agent_response(user_text: str, sender_id: str, user_context: str = "", max_retries: int = 3, **kwargs) -> str:
+    """Gọi AI agent để lấy response bằng chế độ Async"""
     if user_context and user_context.strip():
         query_with_context = f"{user_context}\n\n[Câu hỏi mới]: {user_text}"
     else:
@@ -266,7 +266,8 @@ def get_agent_response(user_text: str, sender_id: str, user_context: str = "", m
     
     for attempt in range(max_retries):
         try:
-            result = agentic_graph_m.invoke(agent_state)
+            # Sử dụng ainvoke để không chặn luồng chính
+            result = await agentic_graph_m.ainvoke(agent_state)
             raw_response = result.get("last_agent_response", "")
             
             if "ANSWER:" in raw_response:
