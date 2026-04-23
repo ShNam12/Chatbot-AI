@@ -9,11 +9,7 @@ import requests
 
 
 load_dotenv()
-
-
-PAGE_ACCESS_TOKEN = "EAAadcKAX0qgBRKsOQhHUFEZAYXab3TqyoCstDCiwyMKydl6JePfyS8VN4khvivoV3G9beHg1blJ6AhE3Cl9uJSCQZBDv8pXsGFJDCbrV8oKhUJCSgar5dG82K62UNSyCiS6QvVAd3SblafZAZAMpPgBxkfpzBZATQOh0KbaTjlfYFZCnfGnLoXB38k4EBjr1jjZCN0Yk0cLjAZDZD"
-
-VERIFY_TOKEN = "MySecretBot2026" 
+ 
 
 def send_facebook_text(recipient_id: str, message_text: str) -> bool:
     page_access_token = os.getenv("PAGE_ACCESS_TOKEN")
