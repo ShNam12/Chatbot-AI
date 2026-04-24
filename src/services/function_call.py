@@ -102,9 +102,9 @@ def retrival_data(query):
                 context_text = f"{context_text}\n[IMAGE_URL: {main_image_url}]"
                 print(f"✅ Tool đã đính kèm ảnh Overview vào context: {main_image_url}")
             elif main_image_url:
-                # print(f"ℹ️ Bỏ qua đính kèm ảnh vì không phải yêu cầu Overview (Query: {query})")
+                print(f"ℹ️ Bỏ qua đính kèm ảnh vì không phải yêu cầu Overview (Query: {query})")
             else:
-                # print("⚠️ Tool không tìm thấy ảnh nào để đính kèm.")
+                print("⚠️ Tool không tìm thấy ảnh nào để đính kèm.")
         else:
             context_text = "Không tìm thấy thông tin liên quan trong cơ sở dữ liệu."
             
