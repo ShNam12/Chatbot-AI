@@ -94,7 +94,6 @@ async def process_single_event(messaging_event):
         recipient_id = messaging_event.get("recipient", {}).get("id")
 
         page_id = recipient_id
-        is_from_page = sender_id == page_id
 
         CONTROL_KEYWORDS_RESUME = ["on", "resume"]
 
