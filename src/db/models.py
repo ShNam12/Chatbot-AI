@@ -13,6 +13,7 @@ class UserSession(SQLModel, table=True):
     last_bot_message_time: Optional[datetime] = Field(default=None) # Từ File 2
     page_id: Optional[str] = Field(default=None)
     message_id: Optional[str] = Field(default=None)
+    ai_paused: bool = Field(default=False)
     
     # Các trường lưu vị trí từ File 1
     address: Optional[str] = Field(default=None)
