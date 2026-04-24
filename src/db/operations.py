@@ -61,36 +61,43 @@ def mark_overview_sent(sender_id: str):
             session.commit()
             print(f"✅ [Operations] Đã cập nhật gửi overview cho {sender_id}")
 
-def search_faq(query_embedding: List[float], limit: int = 2) -> List[str]:
+def search_faq(query_embedding: List[float], limit: int = 2) -> List[dict]:
     """Tìm kiếm kiến thức bằng vector (Cosine Similarity) dùng pgvector ORM"""
     with Session(engine) as session:
         vec = cast(query_embedding, Vector(len(query_embedding)))
         statement = (
-            select(VectorFAQ.content)
+            select(VectorFAQ.content, VectorFAQ.image_url, VectorFAQ.sub_category, VectorFAQ.category)
             .order_by(VectorFAQ.embedding.cosine_distance(vec))
             .limit(limit)
         )
         results = session.exec(statement).all()
-        return list(results)
+        return [{"content": r[0], "image_url": r[1], "sub_category": r[2], "category": r[3]} for r in results]
 
-def insert_vector_faq(category: str, sub_category: str, content: str, embedding: List[float]):
+def insert_vector_faq(category: str, sub_category: str, content: str, embedding: List[float], image_url: Optional[str] = None):
     """Chèn một bản ghi kiến thức mới vào database"""
     with Session(engine) as session:
         faq = VectorFAQ(
             category=category,
             sub_category=sub_category,
             content=content,
-            embedding=embedding
+            embedding=embedding,
+            image_url=image_url
         )
         session.add(faq)
         session.commit()
 
-def get_faq_by_subcategory(sub_category: str) -> Optional[str]:
-    """Lấy nội dung FAQ dựa trên sub_category (không dùng vector)"""
+def get_faq_by_subcategory(sub_category: str) -> Optional[dict]:
+    """Lấy nội dung FAQ dựa trên sub_category (không dùng vector) - Không phân biệt hoa thường"""
     with Session(engine) as session:
-        statement = select(VectorFAQ.content).where(VectorFAQ.sub_category == sub_category)
+        statement = (
+            select(VectorFAQ.content, VectorFAQ.image_url)
+            .where(func.lower(VectorFAQ.sub_category) == sub_category.lower())
+            .where(VectorFAQ.category == "Overview") # Ưu tiên lấy bản ghi Overview
+        )
         result = session.exec(statement).first()
-        return result
+        if result:
+            return {"content": result[0], "image_url": result[1]}
+        return None
 
 
 # ==================== BRANCH & LOCATION OPERATIONS (From File 1) ====================
@@ -703,7 +710,7 @@ def can_ask_phone(sender_id: str) -> bool:
         # 1. Kiểm tra xem khách đã có SĐT trong DB chưa
         user = session.exec(select(User).where(User.sender_id == sender_id)).first()
         if user and user.phone:
-            print(f"🚫 [Anti-Spam] Khách {sender_id} đã có SĐT trong DB. Không hỏi thêm.")
+            # print(f"🚫 [Anti-Spam] Khách {sender_id} đã có SĐT trong DB. Không hỏi thêm.")
             return False
             
         # 2. Kiểm tra xem Bot có vừa mới hỏi SĐT trong các tin nhắn bot gần đây không
@@ -730,10 +737,10 @@ def can_ask_phone(sender_id: str) -> bool:
         for msg in last_bot_messages:
             for kw in keywords:
                 if kw.lower() in msg.content.lower():
-                    print(f"🚫 [Anti-Spam] Bot vừa hỏi SĐT ở tin nhắn gần đây. Tạm dừng hỏi.")
+                    # print(f"🚫 [Anti-Spam] Bot vừa hỏi SĐT ở tin nhắn gần đây. Tạm dừng hỏi.")
                     return False
         
-        print(f"✅ [Anti-Spam] Cho phép hỏi SĐT nếu cần thiết.")
+        # print(f"✅ [Anti-Spam] Cho phép hỏi SĐT nếu cần thiết.")
         return True
 
 # --- MULTI-TENANT FANPAGE CACHE ---

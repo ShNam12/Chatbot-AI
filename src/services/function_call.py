@@ -45,29 +45,72 @@ def retrival_data(query):
             service_name = query.lower().replace("overview", "").strip()
             # Ánh xạ tên môn sang đúng nhãn sub_category trong DB
             from src.db.operations import get_faq_by_subcategory
-            db_overview = get_faq_by_subcategory(service_name.capitalize()) or get_faq_by_subcategory(service_name.upper()) or get_faq_by_subcategory(service_name)
+            db_overview_dict = get_faq_by_subcategory(service_name.capitalize()) or get_faq_by_subcategory(service_name.upper()) or get_faq_by_subcategory(service_name)
             
-            if db_overview:
+            if db_overview_dict:
                 print(f"🎯 Đã tìm thấy chính xác Overview cho môn {service_name}")
-                return {"context": db_overview, "source": "overview_match"}
+                content = db_overview_dict["content"]
+                image_url = db_overview_dict.get("image_url")
+                if image_url:
+                    content = f"{content}\n[IMAGE_URL: {image_url}]"
+                return {"context": content, "source": "overview_match"}
 
         # Nếu không tìm thấy đích danh, quay lại dùng tìm kiếm Vector như cũ
         query_embedding = embeddings_model.embed_query(query)
         results = search_faq(query_embedding, limit=10)
         
         if results:
-            hard_rule_results = [r for r in results if "[QUY TẮC CỨNG" in r]
+            # 1. Ưu tiên Quy tắc cứng (Overview)
+            hard_rule_results = [r for r in results if "[QUY TẮC CỨNG" in r["content"]]
             if hard_rule_results:
-                return {"context": hard_rule_results[0], "source": "overview_vect"}
+                res = hard_rule_results[0]
+                content = res["content"]
+                if res.get("image_url"):
+                    content = f"{content}\n[IMAGE_URL: {res['image_url']}]"
+                return {"context": content, "source": "overview_vect"}
             
-            context_text = "\n---\n".join(results[:2])
+            # 2. Nếu là tìm kiếm thông thường, lấy 2 kết quả tốt nhất
+            context_parts = []
+            main_image_url = None
+            
+            for r in results[:2]:
+                text = r["content"]
+                # Nếu kết quả này có ảnh, lưu lại làm ảnh chính
+                if r.get("image_url") and not main_image_url:
+                    main_image_url = r["image_url"]
+                context_parts.append(text)
+            
+            # 3. MẸO: Nếu kết quả tìm kiếm không có ảnh, hãy thử tìm ảnh Overview của môn này
+            if not main_image_url and results:
+                # Lấy sub_category và category của kết quả đầu tiên để tìm ảnh overview tương ứng
+                sub_cat = results[0].get("sub_category")
+                cat = results[0].get("category")
+                
+                from src.db.operations import get_faq_by_subcategory
+                # Thử tìm theo sub_category trước
+                overview = get_faq_by_subcategory(sub_cat) if sub_cat else None
+                # Nếu không thấy, thử tìm theo category (vì trong CSV Category thường là tên môn như Gym, Yoga)
+                if not overview and cat:
+                    overview = get_faq_by_subcategory(cat)
+                
+                if overview and overview.get("image_url"):
+                    main_image_url = overview["image_url"]
+                    print(f"🖼️ Đã tìm thấy ảnh bổ sung từ Overview cho: {sub_cat or cat}")
+
+            context_text = "\n---\n".join(context_parts)
+            if main_image_url:
+                context_text = f"{context_text}\n[IMAGE_URL: {main_image_url}]"
+                print(f"✅ Tool đã đính kèm ảnh vào context: {main_image_url}")
+            else:
+                print("⚠️ Tool không tìm thấy ảnh nào để đính kèm.")
         else:
             context_text = "Không tìm thấy thông tin liên quan trong cơ sở dữ liệu."
             
     except Exception as e:
         print(f"❌ Lỗi khi thực hiện RAG: {e}")
         context_text = "Lỗi hệ thống khi truy xuất dữ liệu."
-        
+    
+    print(f"🛠️ [Tool Return Content]: {context_text[:200]}...")
     return {"context": context_text, "source": "cauhoi"}
 
 TOOL_MAPPING = {
