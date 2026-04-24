@@ -86,7 +86,7 @@ async def receive_message(request: Request, background_tasks: BackgroundTasks):
                         continue
 
                     if int(event_timestamp) < AI_STARTED_AT_MS:
-                        print(f"[SKIP_OLD] mid={message_id} ts={event_timestamp} < start={AI_STARTED_AT_MS}")
+                        # print(f"[SKIP_OLD] mid={message_id} ts={event_timestamp} < start={AI_STARTED_AT_MS}")
                         continue
 
                     # Đẩy từng tin nhắn riêng lẻ vào hàng đợi xử lý song song (Async)
@@ -120,7 +120,7 @@ async def process_single_event(messaging_event):
 
 
         if event_timestamp and int(event_timestamp) < AI_STARTED_AT_MS:
-            print(f"[SKIP_OLD_WORKER] mid={message_id} ts={event_timestamp} < start={AI_STARTED_AT_MS}")
+            # print(f"[SKIP_OLD_WORKER] mid={message_id} ts={event_timestamp} < start={AI_STARTED_AT_MS}")
             return
 
         if is_echo:
