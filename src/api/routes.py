@@ -295,7 +295,26 @@ async def send_message_to_facebook(recipient_id: str, text: str, customer_name: 
         else:
             print(f"✅ Bỏ qua overview cho {recipient_id}")
 
-        reply_sent = await send_text_message(recipient_id, text, customer_name, access_token=access_token)
+        # --- TRÍCH XUẤT ẢNH TỪ TEXT ---
+        image_url = None
+        cleaned_text = text
+        # Regex linh hoạt: Tìm IMAGE_URL: (có hoặc không có [])
+        # Hỗ trợ cả [IMAGE_URL: url] và IMAGE_URL: url
+        image_match = re.search(r"\[?IMAGE_URL:\s*([^\]\s\n]+)\]?", text, re.IGNORECASE)
+        if image_match:
+            image_url = image_match.group(1).strip()
+            # Xóa toàn bộ dòng chứa IMAGE_URL để gửi tin nhắn sạch
+            cleaned_text = re.sub(r"\[?IMAGE_URL:\s*[^\]\s\n]+\]?", "", text, flags=re.IGNORECASE).strip()
+            # Xóa thêm các dấu gạch ngang dư thừa nếu có ở cuối
+            cleaned_text = re.sub(r"\n---\s*$", "", cleaned_text).strip()
+
+        # 1. Gửi tin nhắn văn bản (đã sạch tag ảnh)
+        reply_sent = await send_text_message(recipient_id, cleaned_text, customer_name, access_token=access_token)
+        
+        # 2. Gửi ảnh nếu tìm thấy link
+        if image_url:
+            print(f"🖼️ [Routes] Phát hiện link ảnh đi kèm: {image_url}")
+            await send_image_message(recipient_id, image_url, access_token=access_token)
         if reply_sent:
             update_last_bot_message_time(recipient_id)
 
