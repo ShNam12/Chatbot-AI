@@ -20,13 +20,14 @@ from src.config.overview_config import OVERVIEW_NESSAGE, IMAGE_OR_VIDEO, OVERVIE
 from src.config.settings import FB_GRAPH_BASE_URL, FB_GRAPH_VERSION
 from src.services.location_memory import handle_location_memory # Module location từ file 2
 from src.utils.helpers import extract_phone, detect_and_update_interest
-
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 load_dotenv()
 PAGE_ACCESS_TOKEN_FALLBACK = os.getenv("PAGE_ACCESS_TOKEN")
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
 
 user_interest_store = {}
+AI_STARTED_AT_MS = int(datetime.now(timezone.utc).timestamp() * 1000)
 
 async def verify_webhook(request: Request):
     """Facebook gọi vào đây để xác minh kết nối lần đầu"""
@@ -76,8 +77,40 @@ async def receive_message(request: Request, background_tasks: BackgroundTasks):
         if body.get("object") == "page":
             for entry in body.get("entry", []):
                 for messaging_event in entry.get("messaging", []):
+                    message = messaging_event.get("message", {})
+                    message_id = message.get("mid")
+                    message_text = message.get("text")
+                    event_timestamp = messaging_event.get("timestamp")
+
+                    # Bỏ qua event không phải message text thực sự
+                    if not message_id or not message_text:
+                        print(
+                            f"[SKIP_NON_TEXT][WEBHOOK] "
+                            f"mid={message_id} ts={event_timestamp} "
+                            f"keys={list(messaging_event.keys())}"
+                        )
+                        continue
+
+                    # Bỏ qua echo do chính page gửi ra
+                    if message.get("is_echo"):
+                        print(
+                            f"[SKIP_ECHO][WEBHOOK] "
+                            f"mid={message_id} "
+                            f"sender={messaging_event.get('sender', {}).get('id')} "
+                            f"recipient={messaging_event.get('recipient', {}).get('id')}"
+                        )
+                        continue
+
+                    if not event_timestamp:
+                        continue
+
+                    if int(event_timestamp) < AI_STARTED_AT_MS:
+                        print(f"[SKIP_OLD] mid={message_id} ts={event_timestamp} < start={AI_STARTED_AT_MS}")
+                        continue
+
                     # Đẩy từng tin nhắn riêng lẻ vào hàng đợi xử lý song song (Async)
                     background_tasks.add_task(process_single_event, messaging_event)
+
             
             return Response(content="EVENT_RECEIVED", status_code=200)
 
@@ -102,6 +135,17 @@ async def process_single_event(messaging_event):
         
         message_id = message.get("mid")
         message_text = message.get("text")
+        event_timestamp = messaging_event.get("timestamp")
+        if message.get("is_echo"):
+            print(
+                f"[SKIP_ECHO][WORKER] mid={message_id} "
+                f"sender={sender_id} recipient={recipient_id}"
+            )
+            return
+        print(f"[ALLOW_NEW_WORKER] mid={message_id} ts={event_timestamp} >= start={AI_STARTED_AT_MS}")
+
+
+
 
         if is_echo:
             text = (message_text or "").lower().strip()
@@ -121,6 +165,9 @@ async def process_single_event(messaging_event):
             return
 
         if not (sender_id and recipient_id and message_id):
+            return
+        if event_timestamp and int(event_timestamp) < AI_STARTED_AT_MS:
+            print(f"[SKIP_OLD_WORKER] mid={message_id} ts={event_timestamp} < start={AI_STARTED_AT_MS}")
             return
 
         print(f"----- PROCESSING MESSAGE (ASYNC): {message_id} -----")
