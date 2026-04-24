@@ -338,7 +338,9 @@ async def send_image_message(recipient_id: str, image_url: str, access_token: st
         "message": {
             "attachment": {
                 "type": "image",
-                "payload": {"url": image_url, "is_reusable": True}
+                "payload": {"url": image_url,
+                            "metadata": BOT_MESSAGE_METADATA,
+                            "is_reusable": True}
             }
         }
     }
@@ -360,7 +362,9 @@ async def send_video_message(recipient_id: str, video_url: str, access_token: st
         "message": {
             "attachment": {
                 "type": "video",
-                "payload": {"url": video_url, "is_reusable": True}
+                "payload": {"url": video_url,
+                            "metadata": BOT_MESSAGE_METADATA,
+                            "is_reusable": True}
             }
         }
     }
@@ -379,7 +383,9 @@ async def send_thank_you_message(recipient_id: str, access_token: str = None):
     payload = {
         "messaging_type": "RESPONSE",
         "recipient": {"id": recipient_id},
-        "message": {"text": text}
+        "message": 
+        {"text": text,
+        "metadata": BOT_MESSAGE_METADATA}
     }
     try:
         async with httpx.AsyncClient() as client:
