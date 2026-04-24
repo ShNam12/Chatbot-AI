@@ -120,6 +120,7 @@ class VectorFAQ(SQLModel, table=True):
     category: str
     sub_category: str
     content: str
+    image_url: Optional[str] = Field(default=None)
     embedding: List[float] = Field(sa_column=Column(Vector(3072)))
 
 
