@@ -129,10 +129,10 @@ async def process_single_event(messaging_event):
 
             # Echo do chính bot gửi ra -> bỏ qua, không pause AI
             if message_metadata == BOT_MESSAGE_METADATA:
-                print(
-                    f"[SKIP_BOT_ECHO] mid={message_id} "
-                    f"sender={sender_id} recipient={recipient_id}"
-                )
+                # print(
+                #     f"[SKIP_BOT_ECHO] mid={message_id} "
+                #     f"sender={sender_id} recipient={recipient_id}"
+                # )
                 return
             CONTROL_KEYWORDS_RESUME = ["on", "resume"]
 
@@ -298,14 +298,13 @@ async def send_message_to_facebook(recipient_id: str, text: str, customer_name: 
         # --- TRÍCH XUẤT ẢNH TỪ TEXT ---
         image_url = None
         cleaned_text = text
-        # Regex linh hoạt: Tìm IMAGE_URL: (có hoặc không có [])
-        # Hỗ trợ cả [IMAGE_URL: url] và IMAGE_URL: url
-        image_match = re.search(r"\[?IMAGE_URL:\s*([^\]\s\n]+)\]?", text, re.IGNORECASE)
+        # Regex linh hoạt: Tìm IMAGE_URL: (chấp nhận cả xuống dòng trước link)
+        image_match = re.search(r"\[?IMAGE_URL:\s*\n?\s*([^\]\s]+)\]?", text, re.IGNORECASE)
         if image_match:
             image_url = image_match.group(1).strip()
-            # Xóa toàn bộ dòng chứa IMAGE_URL để gửi tin nhắn sạch
-            cleaned_text = re.sub(r"\[?IMAGE_URL:\s*[^\]\s\n]+\]?", "", text, flags=re.IGNORECASE).strip()
-            # Xóa thêm các dấu gạch ngang dư thừa nếu có ở cuối
+            # Xóa toàn bộ phần liên quan đến IMAGE_URL
+            cleaned_text = re.sub(r"\[?IMAGE_URL:\s*\n?\s*[^\]\s]+\]?", "", text, flags=re.IGNORECASE).strip()
+            # Xóa thêm các dấu gạch ngang dư thừa
             cleaned_text = re.sub(r"\n---\s*$", "", cleaned_text).strip()
 
         # 1. Gửi tin nhắn văn bản (đã sạch tag ảnh)
@@ -338,10 +337,9 @@ async def send_image_message(recipient_id: str, image_url: str, access_token: st
         "message": {
             "attachment": {
                 "type": "image",
-                "payload": {"url": image_url,
-                            "metadata": BOT_MESSAGE_METADATA,
-                            "is_reusable": True}
-            }
+                "payload": {"url": image_url, "is_reusable": True}
+            },
+            "metadata": BOT_MESSAGE_METADATA
         }
     }
     try:
@@ -362,10 +360,9 @@ async def send_video_message(recipient_id: str, video_url: str, access_token: st
         "message": {
             "attachment": {
                 "type": "video",
-                "payload": {"url": video_url,
-                            "metadata": BOT_MESSAGE_METADATA,
-                            "is_reusable": True}
-            }
+                "payload": {"url": video_url, "is_reusable": True}
+            },
+            "metadata": BOT_MESSAGE_METADATA
         }
     }
     try:
