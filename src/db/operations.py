@@ -781,3 +781,25 @@ def add_facebook_page(page_id: str, access_token: str, page_name: str = None):
         if page_id in _page_token_cache:
             del _page_token_cache[page_id]
         print(f"✅ [Multi-tenant] Đã lưu Fanpage: {page_name or page_id}")
+
+#Tắt AI 
+def pause_ai(sender_id: str):
+    with Session(engine) as session:
+        user = session.get(UserSession, sender_id)  
+        if user:
+            user.ai_paused = True
+            session.add(user)
+            session.commit()
+
+def resume_ai(sender_id: str):
+    with Session(engine) as session:
+        user = session.get(UserSession, sender_id)
+        if user:
+            user.ai_paused = False
+            session.add(user)
+            session.commit()
+
+def is_ai_paused(sender_id: str) -> bool:
+    with Session(engine) as session:
+        user = session.get(UserSession, sender_id)
+        return user.ai_paused if user else False

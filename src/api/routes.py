@@ -4,6 +4,8 @@ import os
 import re
 import asyncio
 from src.services.function_call import get_agent_response
+from src.db.operations import pause_ai, resume_ai, is_ai_paused
+
 # Đã gộp imports từ cả 2 file
 from src.db.operations import (
     save_conversation, should_send_overview, mark_overview_sent, 
@@ -90,9 +92,34 @@ async def process_single_event(messaging_event):
     try:
         sender_id = messaging_event.get("sender", {}).get("id")
         recipient_id = messaging_event.get("recipient", {}).get("id")
+
+        page_id = recipient_id
+        is_from_page = sender_id == page_id
+
+        CONTROL_KEYWORDS_RESUME = ["on", "resume"]
+
         message = messaging_event.get("message", {})
+        is_echo = message.get("is_echo", False)
+        
         message_id = message.get("mid")
         message_text = message.get("text")
+
+        if is_echo:
+            text = (message_text or "").lower().strip()
+            target_user_id = recipient_id  # user
+
+            CONTROL_KEYWORDS_RESUME = ["on", "resume"]
+
+            #  Nếu nhân viên muốn bật lại AI
+            if any(k in text for k in CONTROL_KEYWORDS_RESUME):
+                resume_ai(target_user_id)
+                print(f"▶️ AI resumed for {target_user_id}")
+                return
+
+            #  Còn lại: NHÂN VIÊN NHẮN GÌ CŨNG PAUSE
+            pause_ai(target_user_id)
+            print(f"🛑 AI auto-paused vì nhân viên vừa nhắn ({target_user_id})")
+            return
 
         if not (sender_id and recipient_id and message_id):
             return
@@ -110,6 +137,10 @@ async def process_single_event(messaging_event):
         print(f"Khách hàng: {customer_name} (Page: {recipient_id})")
 
         if "text" in message:
+            if is_ai_paused(sender_id):
+                print(f"⛔ AI đang pause cho {sender_id}, bỏ qua")
+                return
+            
             interest = detect_and_update_interest(sender_id, message_text, user_interest_store)
             interest_str = ", ".join(interest)
             print(f"🎯 Interest: {interest_str}")
