@@ -3,6 +3,7 @@ import httpx
 import os
 import re
 import asyncio
+from datetime import datetime, timezone
 from src.services.function_call import get_agent_response
 from src.db.operations import pause_ai, resume_ai, is_ai_paused
 
@@ -27,6 +28,8 @@ PAGE_ACCESS_TOKEN_FALLBACK = os.getenv("PAGE_ACCESS_TOKEN")
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
 
 user_interest_store = {}
+AI_STARTED_AT_MS = int(datetime.now(timezone.utc).timestamp() * 1000)
+BOT_MESSAGE_METADATA = "ems_ai_bot"
 
 async def verify_webhook(request: Request):
     """Facebook gọi vào đây để xác minh kết nối lần đầu"""
@@ -76,6 +79,16 @@ async def receive_message(request: Request, background_tasks: BackgroundTasks):
         if body.get("object") == "page":
             for entry in body.get("entry", []):
                 for messaging_event in entry.get("messaging", []):
+                    event_timestamp = messaging_event.get("timestamp")
+                    message_id = messaging_event.get("message", {}).get("mid")
+
+                    if not event_timestamp:
+                        continue
+
+                    if int(event_timestamp) < AI_STARTED_AT_MS:
+                        print(f"[SKIP_OLD] mid={message_id} ts={event_timestamp} < start={AI_STARTED_AT_MS}")
+                        continue
+
                     # Đẩy từng tin nhắn riêng lẻ vào hàng đợi xử lý song song (Async)
                     background_tasks.add_task(process_single_event, messaging_event)
             
@@ -102,11 +115,25 @@ async def process_single_event(messaging_event):
         
         message_id = message.get("mid")
         message_text = message.get("text")
+        event_timestamp = messaging_event.get("timestamp")
+        message_metadata = message.get("metadata")
+
+
+        if event_timestamp and int(event_timestamp) < AI_STARTED_AT_MS:
+            print(f"[SKIP_OLD_WORKER] mid={message_id} ts={event_timestamp} < start={AI_STARTED_AT_MS}")
+            return
 
         if is_echo:
             text = (message_text or "").lower().strip()
             target_user_id = recipient_id  # user
 
+            # Echo do chính bot gửi ra -> bỏ qua, không pause AI
+            if message_metadata == BOT_MESSAGE_METADATA:
+                print(
+                    f"[SKIP_BOT_ECHO] mid={message_id} "
+                    f"sender={sender_id} recipient={recipient_id}"
+                )
+                return
             CONTROL_KEYWORDS_RESUME = ["on", "resume"]
 
             #  Nếu nhân viên muốn bật lại AI
@@ -122,6 +149,8 @@ async def process_single_event(messaging_event):
 
         if not (sender_id and recipient_id and message_id):
             return
+
+        print(f"[ALLOW_NEW_WORKER] mid={message_id} ts={event_timestamp} >= start={AI_STARTED_AT_MS}")
 
         print(f"----- PROCESSING MESSAGE (ASYNC): {message_id} -----")
         save_conversation(sender_id, recipient_id, message_id)
@@ -233,7 +262,10 @@ async def send_text_message(recipient_id: str, text: str, customer_name: str = N
     params = {"access_token": access_token}
     payload = {
         "recipient": {"id": recipient_id},
-        "message": {"text": full_message}
+        "message": {
+            "text": full_message,
+            "metadata": BOT_MESSAGE_METADATA
+        }
     }
 
     try:

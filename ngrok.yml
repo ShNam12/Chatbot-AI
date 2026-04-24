@@ -1,7 +1,7 @@
 version: "2"
-authtoken: 2Wyky529XHSw1FwGTYxQZPM6f1U_4dVeCBRL99FibbYU9K31m
+authtoken: 3CXGs4uxl36u6XnTedUeOADLd20_4QQ2Jxj9YmP7TeDSxFb7w
 tunnels:
   test:
     proto: http
     addr: 0.0.0.0:8000
-    domain: wartier-elton-supercritically.ngrok-free.dev
+    domain: unlegally-unexpert-saige.ngrok-free.app
