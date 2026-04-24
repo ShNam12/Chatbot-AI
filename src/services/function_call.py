@@ -95,14 +95,16 @@ def retrival_data(query):
                 
                 if overview and overview.get("image_url"):
                     main_image_url = overview["image_url"]
-                    print(f"🖼️ Đã tìm thấy ảnh bổ sung từ Overview cho: {sub_cat or cat}")
+                    # print(f"🖼️ Đã tìm thấy ảnh bổ sung từ Overview cho: {sub_cat or cat}")
 
             context_text = "\n---\n".join(context_parts)
-            if main_image_url:
+            if main_image_url and query.lower().startswith("overview"):
                 context_text = f"{context_text}\n[IMAGE_URL: {main_image_url}]"
-                print(f"✅ Tool đã đính kèm ảnh vào context: {main_image_url}")
+                print(f"✅ Tool đã đính kèm ảnh Overview vào context: {main_image_url}")
+            elif main_image_url:
+                # print(f"ℹ️ Bỏ qua đính kèm ảnh vì không phải yêu cầu Overview (Query: {query})")
             else:
-                print("⚠️ Tool không tìm thấy ảnh nào để đính kèm.")
+                # print("⚠️ Tool không tìm thấy ảnh nào để đính kèm.")
         else:
             context_text = "Không tìm thấy thông tin liên quan trong cơ sở dữ liệu."
             
@@ -110,7 +112,7 @@ def retrival_data(query):
         print(f"❌ Lỗi khi thực hiện RAG: {e}")
         context_text = "Lỗi hệ thống khi truy xuất dữ liệu."
     
-    print(f"🛠️ [Tool Return Content]: {context_text[:200]}...")
+    # print(f"🛠️ [Tool Return Content]: {context_text[:200]}...")
     return {"context": context_text, "source": "cauhoi"}
 
 TOOL_MAPPING = {
