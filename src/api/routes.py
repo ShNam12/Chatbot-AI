@@ -5,7 +5,7 @@ import re
 import asyncio
 from datetime import datetime, timezone
 from src.services.function_call import get_agent_response
-from src.db.operations import pause_ai, resume_ai, is_ai_paused
+from src.db.operations import pause_ai, resume_ai, is_ai_paused, get_user_address
 
 # Đã gộp imports từ cả 2 file
 from src.db.operations import (
@@ -173,6 +173,7 @@ async def process_single_event(messaging_event):
             interest_str = ", ".join(interest)
             print(f"🎯 Interest: {interest_str}")
             phone = extract_phone(message_text)
+            address = get_user_address(sender_id)
 
             # ========== XỬ LÝ SỐ ĐIỆN THOẠI ==========
             if phone is False:
@@ -185,7 +186,7 @@ async def process_single_event(messaging_event):
                 print(f"📞 Phát hiện SĐT hợp lệ: {phone}")
                 try:
                     # Chỗ này gspread chưa async nên tạm giữ sync
-                    save_to_sheet(customer_name, phone, interest_str)
+                    save_to_sheet(customer_name, phone, interest_str, address)
                     print(f"✅ Đã lưu vào Google Sheet")
                     await send_thank_you_message(sender_id, access_token=access_token)
                 except Exception as e:
