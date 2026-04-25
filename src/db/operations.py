@@ -811,7 +811,6 @@ def is_ai_paused(sender_id: str) -> bool:
         user = session.get(UserSession, sender_id)
         return user.ai_paused if user else False
 
-
 #Lấy địa chỉ từ db 
 def get_user_address(sender_id: str) -> str | None:
     with Session(engine) as session:
