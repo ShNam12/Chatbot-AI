@@ -20,11 +20,11 @@ def get_sheet():
     client = gspread.authorize(creds)
     return client.open(SHEET_NAME).sheet1
 
-def save_to_sheet(name, phone, interest):
+def save_to_sheet(name, phone, interest, address):
     try:
         sheet = get_sheet()
         time_now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        sheet.append_row([time_now, name, phone, interest])
+        sheet.append_row([time_now, name, phone, interest, address])
         return True
     except Exception as e:
         print(f"❌ Lỗi ghi vào Google Sheet: {e}")
