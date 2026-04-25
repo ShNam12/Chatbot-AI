@@ -51,7 +51,7 @@ def retrival_data(query):
                 print(f"🎯 Đã tìm thấy chính xác Overview cho môn {service_name}")
                 content = db_overview_dict["content"]
                 image_url = db_overview_dict.get("image_url")
-                if image_url:
+                if image_url and query.lower().startswith("overview"):
                     content = f"{content}\n[IMAGE_URL: {image_url}]"
                 return {"context": content, "source": "overview_match"}
 
@@ -60,13 +60,24 @@ def retrival_data(query):
         results = search_faq(query_embedding, limit=10)
         
         if results:
+            # Kiểm tra từ khóa cụ thể
+            SPECIFIC_KEYWORDS = ["giá", "phí", "tiền", "lịch", "địa chỉ", "cơ sở", "chi nhánh"]
+            is_specific = any(kw in query.lower() for kw in SPECIFIC_KEYWORDS)
+            is_overview_request = query.lower().startswith("overview")
+
             # 1. Ưu tiên Quy tắc cứng (Overview)
             hard_rule_results = [r for r in results if "[QUY TẮC CỨNG" in r["content"]]
             if hard_rule_results:
                 res = hard_rule_results[0]
                 content = res["content"]
-                if res.get("image_url"):
+                # CHỈ gắn ảnh nếu là yêu cầu Overview và không phải hỏi giá
+                if res.get("image_url") and is_overview_request and not is_specific:
                     content = f"{content}\n[IMAGE_URL: {res['image_url']}]"
+                
+                # Nếu là câu hỏi cụ thể, xóa sạch mọi tag ảnh có sẵn trong nội dung
+                if is_specific:
+                    content = re.sub(r"\[?IMAGE_URL:\s*[^\]\s\n]+\]?", "", content, flags=re.IGNORECASE).strip()
+                    
                 return {"context": content, "source": "overview_vect"}
             
             # 2. Nếu là tìm kiếm thông thường, lấy 2 kết quả tốt nhất
@@ -98,13 +109,19 @@ def retrival_data(query):
                     # print(f"🖼️ Đã tìm thấy ảnh bổ sung từ Overview cho: {sub_cat or cat}")
 
             context_text = "\n---\n".join(context_parts)
-            if main_image_url and query.lower().startswith("overview"):
+            
+            # Chỉ đính kèm ảnh Overview nếu đúng ngữ cảnh
+            if main_image_url and is_overview_request and not is_specific:
                 context_text = f"{context_text}\n[IMAGE_URL: {main_image_url}]"
                 print(f"✅ Tool đã đính kèm ảnh Overview vào context: {main_image_url}")
-            elif main_image_url:
-                print(f"ℹ️ Bỏ qua đính kèm ảnh vì không phải yêu cầu Overview (Query: {query})")
             else:
-                print("⚠️ Tool không tìm thấy ảnh nào để đính kèm.")
+                # Nếu là câu hỏi cụ thể, XÓA sạch mọi tag ảnh có thể đang nằm trong nội dung FAQ
+                if is_specific:
+                    context_text = re.sub(r"\[?IMAGE_URL:\s*[^\]\s\n]+\]?", "", context_text, flags=re.IGNORECASE).strip()
+                
+                reason = "chứa từ khóa cụ thể" if is_specific else "không bắt đầu bằng 'overview'"
+                if main_image_url:
+                    print(f"ℹ️ Bỏ qua đính kèm ảnh vì {reason} (Query: {query})")
         else:
             context_text = "Không tìm thấy thông tin liên quan trong cơ sở dữ liệu."
             
