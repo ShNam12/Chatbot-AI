@@ -1,7 +1,15 @@
 version: "2"
+<<<<<<< HEAD
 authtoken: 2Wyky529XHSw1FwGTYxQZPM6f1U_4dVeCBRL99FibbYU9K31m
+=======
+authtoken: 3CXGs4uxl36u6XnTedUeOADLd20_4QQ2Jxj9YmP7TeDSxFb7w
+>>>>>>> 5303b80e963b73aad4ecb764b31755665bbda9a2
 tunnels:
   test:
     proto: http
     addr: 0.0.0.0:8000
+<<<<<<< HEAD
     domain: wartier-elton-supercritically.ngrok-free.dev
+=======
+    domain: unlegally-unexpert-saige.ngrok-free.app
+>>>>>>> 5303b80e963b73aad4ecb764b31755665bbda9a2

@@ -1,0 +1,14 @@
+# Tự động normalize line endings về LF trong repo
+* text=auto eol=lf
+
+# Python files luôn dùng LF
+*.py text eol=lf
+
+# Batch/Windows scripts dùng CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary files không convert
+*.png binary
+*.jpg binary
+*.exe binary

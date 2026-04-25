@@ -9,8 +9,15 @@ CREATE TABLE IF NOT EXISTS user_sessions (
     sender_id TEXT PRIMARY KEY,               -- ID người nhắn (PSID)
     last_customer_message_time TIMESTAMP,     -- Thời gian tin nhắn cuối
     last_overview_sent_time TIMESTAMP,        -- Thời gian gửi overview cuối
+<<<<<<< HEAD
     page_id TEXT,                             -- ID Fanpage nhận tin
     message_id TEXT                            -- ID tin nhắn cuối
+=======
+    last_bot_message_time TIMESTAMP,          -- Thời gian tin nhắn cuối từ bot
+    page_id TEXT,                             -- ID Fanpage nhận tin
+    message_id TEXT                            -- ID tin nhắn cuối
+    ai_paused BOOLEAN DEFAULT FALSE             -- Trạng thái pause AI cho người dùng
+>>>>>>> 5303b80e963b73aad4ecb764b31755665bbda9a2
 );
 
 -- 3. Bảng lưu trữ kiến thức RAG (Thay thế ChromaDB)
