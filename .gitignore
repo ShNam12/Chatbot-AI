@@ -40,4 +40,8 @@ database.db
 ngrok.yml
 .claude/
 
+<<<<<<< HEAD
 credentials.json
+=======
+credentials.json
+>>>>>>> 5303b80e963b73aad4ecb764b31755665bbda9a2
