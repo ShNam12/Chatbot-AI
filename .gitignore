@@ -38,3 +38,6 @@ Thiết kế/
 database.db
 
 ngrok.yml
+.claude/
+
+credentials.json

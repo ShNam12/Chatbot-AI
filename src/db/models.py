@@ -13,6 +13,7 @@ class UserSession(SQLModel, table=True):
     last_bot_message_time: Optional[datetime] = Field(default=None) # Từ File 2
     page_id: Optional[str] = Field(default=None)
     message_id: Optional[str] = Field(default=None)
+    ai_paused: bool = Field(default=False)
     
     # Các trường lưu vị trí từ File 1
     address: Optional[str] = Field(default=None)
@@ -119,6 +120,7 @@ class VectorFAQ(SQLModel, table=True):
     category: str
     sub_category: str
     content: str
+    image_url: Optional[str] = Field(default=None)
     embedding: List[float] = Field(sa_column=Column(Vector(3072)))
 
 
@@ -134,3 +136,15 @@ class EmsBranch(SQLModel, table=True):
     latitude: Optional[float] = Field(default=None)
     longitude: Optional[float] = Field(default=None)
     is_active: bool = Field(default=True)
+
+class FacebookPage(SQLModel, table=True):
+    """Bảng lưu thông tin các Fanpage Facebook (Multi-tenant)"""
+    __tablename__ = "facebook_pages"
+    
+    page_id: str = Field(primary_key=True)  # ID Fanpage
+    page_name: Optional[str] = Field(default=None)
+    access_token: str = Field(index=True)   # Token truy cập của Page
+    is_active: bool = Field(default=True)
+    
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: Optional[datetime] = Field(default=None)

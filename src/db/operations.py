@@ -3,7 +3,11 @@ from datetime import datetime, timedelta
 from sqlmodel import Session, select, text
 from .database import engine
 # Đã gộp toàn bộ models của cả 2 file
-from .models import UserSession, VectorFAQ, EmsBranch, User, Conversation, Message    
+from src.db.models import (
+    UserSession, VectorFAQ, EmsBranch, User, Conversation, Message,
+    FacebookPage
+)
+    
 from pgvector.sqlalchemy import Vector
 # Đã thêm desc từ file 2
 from sqlalchemy import cast, func, desc
@@ -57,29 +61,43 @@ def mark_overview_sent(sender_id: str):
             session.commit()
             print(f"✅ [Operations] Đã cập nhật gửi overview cho {sender_id}")
 
-def search_faq(query_embedding: List[float], limit: int = 2) -> List[str]:
+def search_faq(query_embedding: List[float], limit: int = 2) -> List[dict]:
     """Tìm kiếm kiến thức bằng vector (Cosine Similarity) dùng pgvector ORM"""
     with Session(engine) as session:
         vec = cast(query_embedding, Vector(len(query_embedding)))
         statement = (
-            select(VectorFAQ.content)
+            select(VectorFAQ.content, VectorFAQ.image_url, VectorFAQ.sub_category, VectorFAQ.category)
             .order_by(VectorFAQ.embedding.cosine_distance(vec))
             .limit(limit)
         )
         results = session.exec(statement).all()
-        return list(results)
+        return [{"content": r[0], "image_url": r[1], "sub_category": r[2], "category": r[3]} for r in results]
 
-def insert_vector_faq(category: str, sub_category: str, content: str, embedding: List[float]):
+def insert_vector_faq(category: str, sub_category: str, content: str, embedding: List[float], image_url: Optional[str] = None):
     """Chèn một bản ghi kiến thức mới vào database"""
     with Session(engine) as session:
         faq = VectorFAQ(
             category=category,
             sub_category=sub_category,
             content=content,
-            embedding=embedding
+            embedding=embedding,
+            image_url=image_url
         )
         session.add(faq)
         session.commit()
+
+def get_faq_by_subcategory(sub_category: str) -> Optional[dict]:
+    """Lấy nội dung FAQ dựa trên sub_category (không dùng vector) - Không phân biệt hoa thường"""
+    with Session(engine) as session:
+        statement = (
+            select(VectorFAQ.content, VectorFAQ.image_url)
+            .where(func.lower(VectorFAQ.sub_category) == sub_category.lower())
+            .where(VectorFAQ.category == "Overview") # Ưu tiên lấy bản ghi Overview
+        )
+        result = session.exec(statement).first()
+        if result:
+            return {"content": result[0], "image_url": result[1]}
+        return None
 
 
 # ==================== BRANCH & LOCATION OPERATIONS (From File 1) ====================
@@ -172,6 +190,46 @@ def get_user_location(sender_id: str ) -> Optional[dict]:
 
 # ==================== 3-TABLE CHAT HISTORY OPERATIONS (From File 2) ====================
 
+def _get_or_create_user_internal(
+    session: Session,
+    sender_id: str,
+    sender_name: Optional[str] = None,
+    phone: Optional[str] = None,
+    interest: Optional[str] = None,
+    page_id: Optional[str] = None
+) -> User:
+    """[Internal] Lấy hoặc tạo mới một người dùng (dùng session được pass vào)"""
+    statement = select(User).where(User.sender_id == sender_id)
+    user = session.exec(statement).first()
+    
+    if user:
+        if sender_name and not user.sender_name:
+            user.sender_name = sender_name
+        if phone and not user.phone:
+            user.phone = phone
+        if interest and not user.interest:
+            user.interest = interest
+        if page_id and not user.page_id:
+            user.page_id = page_id
+        user.last_message_at = datetime.now()
+    else:
+        user = User(
+            sender_id=sender_id,
+            sender_name=sender_name,
+            phone=phone,
+            interest=interest,
+            page_id=page_id,
+            first_message_at=datetime.now(),
+            last_message_at=datetime.now(),
+            total_messages=0
+        )
+        session.add(user)
+        print(f"✅ [User] Tạo user mới: {sender_id}")
+    
+    session.flush()  # Flush to get ID without commit
+    return user
+
+
 def get_or_create_user(
     sender_id: str,
     sender_name: Optional[str] = None,
@@ -179,37 +237,48 @@ def get_or_create_user(
     interest: Optional[str] = None,
     page_id: Optional[str] = None
 ) -> User:
-    """Lấy hoặc tạo mới một người dùng"""
+    """Lấy hoặc tạo mới một người dùng (công khai)"""
     with Session(engine) as session:
-        statement = select(User).where(User.sender_id == sender_id)
-        user = session.exec(statement).first()
-        
-        if user:
-            if sender_name and not user.sender_name:
-                user.sender_name = sender_name
-            if phone and not user.phone:
-                user.phone = phone
-            if interest and not user.interest:
-                user.interest = interest
-            if page_id and not user.page_id:
-                user.page_id = page_id
-            user.last_message_at = datetime.now()
-        else:
-            user = User(
-                sender_id=sender_id,
-                sender_name=sender_name,
-                phone=phone,
-                interest=interest,
-                page_id=page_id,
-                first_message_at=datetime.now(),
-                last_message_at=datetime.now(),
-                total_messages=0
-            )
-            session.add(user)
-        
+        user = _get_or_create_user_internal(
+            session, sender_id, sender_name, phone, interest, page_id
+        )
         session.commit()
         session.refresh(user)
         return user
+
+
+def _get_or_create_conversation_internal(
+    session: Session,
+    user_id: int,
+    category: Optional[str] = None,
+    intent: Optional[str] = None,
+    topic: Optional[str] = None
+) -> Conversation:
+    """[Internal] Lấy hoặc tạo mới một cuộc trò chuyện (dùng session được pass vào)"""
+    statement = (
+        select(Conversation)
+        .where(
+            Conversation.user_id == user_id,
+            Conversation.ended_at.is_(None)
+        )
+        .order_by(desc(Conversation.started_at))
+    )
+    conversation = session.exec(statement).first()
+    
+    if not conversation:
+        conversation = Conversation(
+            user_id=user_id,
+            category=category,
+            intent=intent,
+            topic=topic,
+            message_count=0,
+            started_at=datetime.now()
+        )
+        session.add(conversation)
+        print(f"✅ [Conversation] Tạo cuộc trò chuyện mới cho user #{user_id}")
+    
+    session.flush()  # Flush to get ID without commit
+    return conversation
 
 
 def get_or_create_conversation(
@@ -218,32 +287,13 @@ def get_or_create_conversation(
     intent: Optional[str] = None,
     topic: Optional[str] = None
 ) -> Conversation:
-    """Lấy hoặc tạo mới một cuộc trò chuyện (nếu chưa tồn tại hoặc đã kết thúc)"""
+    """Lấy hoặc tạo mới một cuộc trò chuyện (công khai)"""
     with Session(engine) as session:
-        statement = (
-            select(Conversation)
-            .where(
-                Conversation.user_id == user_id,
-                Conversation.ended_at.is_(None)
-            )
-            .order_by(desc(Conversation.started_at))
+        conversation = _get_or_create_conversation_internal(
+            session, user_id, category, intent, topic
         )
-        conversation = session.exec(statement).first()
-        
-        if not conversation:
-            conversation = Conversation(
-                user_id=user_id,
-                category=category,
-                intent=intent,
-                topic=topic,
-                message_count=0,
-                started_at=datetime.now()
-            )
-            session.add(conversation)
-            session.commit()
-            session.refresh(conversation)
-            print(f"✅ [Conversation] Tạo cuộc trò chuyện mới #{conversation.id} cho user #{user_id}")
-        
+        session.commit()
+        session.refresh(conversation)
         return conversation
 
 
@@ -261,18 +311,13 @@ def save_user_message(
     """Lưu tin nhắn của người dùng (tạo User/Conversation nếu cần)"""
     with Session(engine) as session:
         try:
-            user = get_or_create_user(
-                sender_id=sender_id,
-                sender_name=sender_name,
-                phone=phone,
-                interest=interest,
-                page_id=page_id
+            # Dùng hàm internal để tránh mở session lồng nhau
+            user = _get_or_create_user_internal(
+                session, sender_id, sender_name, phone, interest, page_id
             )
             
-            conversation = get_or_create_conversation(
-                user_id=user.id,
-                category=category,
-                intent=intent
+            conversation = _get_or_create_conversation_internal(
+                session, user_id=user.id, category=category, intent=intent
             )
             
             message = Message(
@@ -294,11 +339,13 @@ def save_user_message(
             
             session.commit()
             session.refresh(message)
-            print(f"✅ [Message] Lưu tin nhắn user: {sender_id} -> Message #{message.id} (Conversation #{conversation.id})")
+            print(f"✅ [Message] Lưu user message: {sender_id} -> Message #{message.id} (Conversation #{conversation.id})")
             return message
         
         except Exception as e:
-            print(f"❌ [Message] Lỗi lưu tin nhắn user: {str(e)}")
+            print(f"❌ [Message] Lỗi lưu user message: {str(e)}")
+            import traceback
+            traceback.print_exc()
             session.rollback()
             raise
 
@@ -357,7 +404,7 @@ def save_bot_message(
             
             session.commit()
             session.refresh(message)
-            print(f"✅ [Message] Lưu phản hồi bot cho {sender_id} -> Message #{message.id}")
+            print(f"✅ [Message] Lưu bot message: {sender_id} -> Message #{message.id} (Conversation #{conversation.id})")
             return message
         
         except Exception as e:
@@ -542,10 +589,16 @@ def get_conversation_context(sender_id: str, max_messages: int = 10) -> str:
     """Lấy lịch sử chat gần đây để làm context cho LLM"""
     with Session(engine) as session:
         try:
+            print(f"🔍 [Context] Bắt đầu lấy context cho {sender_id}")
+            
+            # Bước 1: Lấy user
             user = session.exec(select(User).where(User.sender_id == sender_id)).first()
             if not user:
+                print(f"⚠️ [Context] User không tìm thấy: {sender_id}")
                 return ""
+            print(f"✅ [Context] Tìm thấy user #{user.id}: {sender_id}")
             
+            # Bước 2: Lấy conversation đang active
             conversation = session.exec(
                 select(Conversation)
                 .where(
@@ -556,29 +609,45 @@ def get_conversation_context(sender_id: str, max_messages: int = 10) -> str:
             ).first()
             
             if not conversation:
+                print(f"⚠️ [Context] Không tìm thấy conversation cho user #{user.id}")
                 return ""
+            print(f"✅ [Context] Tìm thấy conversation #{conversation.id}")
             
-            messages = session.exec(
+            # Bước 3: Lấy N tin nhắn MỚI NHẤT (DESC), sau đó sẽ đảo ngược lại
+            messages_list = session.exec(
                 select(Message)
                 .where(Message.conversation_id == conversation.id)
-                .order_by(Message.created_at)
+                .order_by(desc(Message.created_at))
                 .limit(max_messages)
             ).all()
             
-            if not messages:
+            if not messages_list:
+                print(f"⚠️ [Context] Không có tin nhắn trong conversation #{conversation.id}")
                 return ""
             
-            history_lines = ["📋 Lịch sử trò chuyện gần đây:"]
-            for msg in messages:
-                if msg.message_type == "user":
-                    history_lines.append(f"👤 User: {msg.content}")
-                else:
-                    history_lines.append(f"🤖 Bot: {msg.content}")
+            # Đảo ngược lại để hiển thị từ cũ -> mới cho AI đọc
+            messages_list.reverse()
             
-            return "\n".join(history_lines)
+            print(f"✅ [Context] Lấy được {len(messages_list)} tin nhắn mới nhất")
+            
+            # Bước 4: Tạo format context
+            history_lines = ["📋 Lịch sử trò chuyện gần đây:"]
+            for i, msg in enumerate(messages_list, 1):
+                if msg.message_type == "user":
+                    history_lines.append(f"👤 [{i}] User: {msg.content[:100]}..." if len(msg.content) > 100 else f"👤 [{i}] User: {msg.content}")
+                elif msg.message_type == "bot":
+                    history_lines.append(f"🤖 [{i}] Bot: {msg.content[:100]}..." if len(msg.content) > 100 else f"🤖 [{i}] Bot: {msg.content}")
+            
+            result = "\n".join(history_lines)
+            print("\n" + "="*50)
+            print(result)
+            print("="*50 + "\n")
+            return result
         
         except Exception as e:
             print(f"❌ [Context] Lỗi lấy history: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return ""
 
 
@@ -634,3 +703,116 @@ def update_last_bot_message_time(sender_id: str):
             session.add(user_session)
             session.commit()
             print(f"✅ [Operations] Updated last bot message time for {sender_id}")
+
+def can_ask_phone(sender_id: str) -> bool:
+    """Kiểm tra xem Bot có thể hỏi SĐT của khách hàng lúc này không (Anti-spam)"""
+    with Session(engine) as session:
+        # 1. Kiểm tra xem khách đã có SĐT trong DB chưa
+        user = session.exec(select(User).where(User.sender_id == sender_id)).first()
+        if user and user.phone:
+            # print(f"🚫 [Anti-Spam] Khách {sender_id} đã có SĐT trong DB. Không hỏi thêm.")
+            return False
+            
+        # 2. Kiểm tra xem Bot có vừa mới hỏi SĐT trong các tin nhắn bot gần đây không
+        # Tìm conversation active
+        conversation = session.exec(
+            select(Conversation)
+            .join(User)
+            .where(User.sender_id == sender_id, Conversation.ended_at.is_(None))
+            .order_by(desc(Conversation.started_at))
+        ).first()
+        
+        if not conversation:
+            return True
+            
+        # Lấy 3 tin nhắn gần nhất của Bot trong cuộc hội thoại này
+        last_bot_messages = session.exec(
+            select(Message)
+            .where(Message.conversation_id == conversation.id, Message.message_type == "bot")
+            .order_by(desc(Message.created_at))
+            .limit(3)
+        ).all()
+        
+        keywords = ["SĐT", "SDT", "số điện thoại", "Zalo", "liên hệ trực tiếp", "xin số"]
+        for msg in last_bot_messages:
+            for kw in keywords:
+                if kw.lower() in msg.content.lower():
+                    # print(f"🚫 [Anti-Spam] Bot vừa hỏi SĐT ở tin nhắn gần đây. Tạm dừng hỏi.")
+                    return False
+        
+        # print(f"✅ [Anti-Spam] Cho phép hỏi SĐT nếu cần thiết.")
+        return True
+
+# --- MULTI-TENANT FANPAGE CACHE ---
+_page_token_cache = {}
+
+def get_page_token(page_id: str) -> Optional[str]:
+    """Lấy Access Token của Fanpage dựa trên Page ID (Có cache)"""
+    # 1. Thử lấy từ Cache
+    if page_id in _page_token_cache:
+        return _page_token_cache[page_id]
+        
+    # 2. Truy vấn Database
+    with Session(engine) as session:
+        statement = select(FacebookPage).where(FacebookPage.page_id == page_id, FacebookPage.is_active == True)
+        page = session.exec(statement).first()
+        
+        if page:
+            token = page.access_token
+            _page_token_cache[page_id] = token # Lưu vào cache
+            return token
+            
+    print(f"⚠️ [Multi-tenant] Không tìm thấy Token cho Page ID: {page_id}")
+    return None
+
+def add_facebook_page(page_id: str, access_token: str, page_name: str = None):
+    """Thêm hoặc cập nhật Fanpage vào Database"""
+    with Session(engine) as session:
+        statement = select(FacebookPage).where(FacebookPage.page_id == page_id)
+        page = session.exec(statement).first()
+        
+        if page:
+            page.access_token = access_token
+            page.page_name = page_name
+            page.updated_at = datetime.now()
+        else:
+            page = FacebookPage(
+                page_id=page_id,
+                access_token=access_token,
+                page_name=page_name
+            )
+        
+        session.add(page)
+        session.commit()
+        # Xóa cache để cập nhật dữ liệu mới
+        if page_id in _page_token_cache:
+            del _page_token_cache[page_id]
+        print(f"✅ [Multi-tenant] Đã lưu Fanpage: {page_name or page_id}")
+
+#Tắt AI 
+def pause_ai(sender_id: str):
+    with Session(engine) as session:
+        user = session.get(UserSession, sender_id)  
+        if user:
+            user.ai_paused = True
+            session.add(user)
+            session.commit()
+
+def resume_ai(sender_id: str):
+    with Session(engine) as session:
+        user = session.get(UserSession, sender_id)
+        if user:
+            user.ai_paused = False
+            session.add(user)
+            session.commit()
+
+def is_ai_paused(sender_id: str) -> bool:
+    with Session(engine) as session:
+        user = session.get(UserSession, sender_id)
+        return user.ai_paused if user else False
+
+#Lấy địa chỉ từ db 
+def get_user_address(sender_id: str) -> str | None:
+    with Session(engine) as session:
+        user = session.get(UserSession, sender_id)
+        return user.address if user and user.address else None

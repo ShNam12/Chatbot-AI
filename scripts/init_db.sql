@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS user_sessions (
     last_bot_message_time TIMESTAMP,          -- Thời gian tin nhắn cuối từ bot
     page_id TEXT,                             -- ID Fanpage nhận tin
     message_id TEXT                            -- ID tin nhắn cuối
+    ai_paused BOOLEAN DEFAULT FALSE             -- Trạng thái pause AI cho người dùng
 );
 
 -- 3. Bảng lưu trữ kiến thức RAG (Thay thế ChromaDB)

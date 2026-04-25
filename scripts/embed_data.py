@@ -19,10 +19,11 @@ def embed_csv_data():
     print("🚀 Khởi tạo Database...")
     init_db()
 
-    # Xóa dữ liệu cũ để tránh xung đột dimension (Nếu bạn muốn nạp lại từ đầu)
-    print("🧹 Đang làm sạch dữ liệu cũ trong vector_faq...")
+    # Xóa dữ liệu cũ nhưng giữ lại Overview
+    print("🧹 Đang làm sạch dữ liệu cũ (không phải Overview) trong vector_faq...")
     with Session(engine) as session:
-        session.execute(text("TRUNCATE TABLE vector_faq RESTART IDENTITY"))
+        # Chỉ xóa những cái không phải Overview để giữ lại dữ liệu seed có ảnh
+        session.execute(text("DELETE FROM vector_faq WHERE category != 'Overview'"))
         session.commit()
 
     # 2. Sử dụng Gemini Embeddings từ utils
@@ -51,10 +52,10 @@ def embed_csv_data():
     for index, row in combined_df.iterrows():
         category = str(row.get('Category', ''))
         sub_category = str(row.get('Sub_Category', ''))
-        # intent = str(row.get('User_Query_Intent', ''))
         content = str(row.get('Information_Chunk', ''))
-        # keywords = str(row.get('Keywords', ''))
 
+        image_url = str(row.get('image_url', '')) if 'image_url' in combined_df.columns else None
+        
         # Tạo chuỗi văn bản đầy đủ để AI hiểu ngữ cảnh tốt hơn
         full_text = f"Category: {category} | Sub-Category: {sub_category} | Content: {content}"
         
@@ -69,7 +70,8 @@ def embed_csv_data():
                 category=category,
                 sub_category=sub_category,
                 content=content,
-                embedding=vector
+                embedding=vector,
+                image_url=image_url if image_url and image_url != "nan" else None
             )
         except Exception as e:
             print(f"❌ Lỗi khi xử lý dòng {index + 1}: {e}")
