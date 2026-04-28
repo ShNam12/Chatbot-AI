@@ -1,8 +1,14 @@
 from typing import Optional, List
+<<<<<<< HEAD
 from sqlmodel import SQLModel, Field, Column, JSON, Relationship
 from pgvector.sqlalchemy import Vector
 from datetime import datetime
 from sqlalchemy import Index, ForeignKey
+=======
+from sqlmodel import SQLModel, Field, Column, JSON
+from pgvector.sqlalchemy import Vector
+from datetime import datetime
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889
 
 class UserSession(SQLModel, table=True):
     __tablename__ = "user_sessions"
@@ -10,16 +16,23 @@ class UserSession(SQLModel, table=True):
     sender_id: str = Field(primary_key=True)
     last_customer_message_time: Optional[datetime] = Field(default=None)
     last_overview_sent_time: Optional[datetime] = Field(default=None)
+<<<<<<< HEAD
     last_bot_message_time: Optional[datetime] = Field(default=None) # Từ File 2
     page_id: Optional[str] = Field(default=None)
     message_id: Optional[str] = Field(default=None)
     
     # Các trường lưu vị trí từ File 1
+=======
+    page_id: Optional[str] = Field(default=None)
+    message_id: Optional[str] = Field(default=None)
+    
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889
     address: Optional[str] = Field(default=None)
     lat: Optional[float] = Field(default=None)
     lon: Optional[float] = Field(default=None)
     address_updated_at: Optional[datetime] = Field(default=None)
 
+<<<<<<< HEAD
 
 # ============================================================
 # 📊 Optimized 3-Table Chat History Schema (Từ File 2)
@@ -112,18 +125,30 @@ class Message(SQLModel, table=True):
     )
 
 
+=======
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889
 class VectorFAQ(SQLModel, table=True):
     __tablename__ = "vector_faq"
     
     id: Optional[int] = Field(default=None, primary_key=True)
     category: str
     sub_category: str
+<<<<<<< HEAD
     content: str
     embedding: List[float] = Field(sa_column=Column(Vector(3072)))
 
 
 class EmsBranch(SQLModel, table=True):
     """Bảng lưu thông tin chi nhánh (Từ File 1)"""
+=======
+    intent: str
+    content: str
+    keywords: Optional[str] = Field(default=None)
+    extra_info: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    embedding: List[float] = Field(sa_column=Column(Vector(3072)))
+
+class EmsBranch(SQLModel, table=True):
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889
     __tablename__ = "ems_branch"
 
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -133,4 +158,9 @@ class EmsBranch(SQLModel, table=True):
     city: Optional[str] = Field(default=None)        # Thành phố
     latitude: Optional[float] = Field(default=None)
     longitude: Optional[float] = Field(default=None)
+<<<<<<< HEAD
     is_active: bool = Field(default=True)
+=======
+    is_active: bool = Field(default=True)
+
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889

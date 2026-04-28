@@ -16,6 +16,7 @@ DB_NAME = os.getenv("DB_NAME")
 
 DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}?sslmode=require"
 
+<<<<<<< HEAD
 # pool_pre_ping=True: Tự động kiểm tra và kết nối lại nếu DB ngắt kết nối (thường gặp ở Neon/Cloud DB)
 # pool_recycle=300: Tạo mới kết nối sau mỗi 5 phút để tránh bị timeout
 engine = create_engine(
@@ -24,6 +25,9 @@ engine = create_engine(
     pool_pre_ping=True, 
     pool_recycle=300
 )
+=======
+engine = create_engine(DATABASE_URL, echo=False)
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889
 
 def init_db():
     from sqlalchemy import inspect, Text
@@ -48,6 +52,7 @@ def init_db():
                     default_clause = ""
                     if col.default is not None and hasattr(col.default, "arg"):
                         default_clause = f"DEFAULT {col.default.arg!r}"
+<<<<<<< HEAD
                     try:
                         conn.execute(text(
                             f'ALTER TABLE "{table_name}" ADD COLUMN IF NOT EXISTS '
@@ -56,6 +61,13 @@ def init_db():
                         print(f"  ➕ Đã thêm cột '{col.name}' vào bảng '{table_name}'")
                     except Exception as e:
                         print(f"  ⚠️ Không thể tự động thêm cột '{col.name}': {e}")
+=======
+                    conn.execute(text(
+                        f'ALTER TABLE "{table_name}" ADD COLUMN IF NOT EXISTS '
+                        f'"{col.name}" {col_type} {default_clause} {nullable}'
+                    ))
+                    print(f"  ➕ Đã thêm cột '{col.name}' vào bảng '{table_name}'")
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889
         conn.commit()
 
     # pgvector HNSW/IVFFLAT chỉ hỗ trợ tối đa 2000 dims, embedding 3072 dims → dùng sequential scan

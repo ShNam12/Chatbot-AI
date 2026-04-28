@@ -1,6 +1,9 @@
 import json
 import os
+<<<<<<< HEAD
 import re
+=======
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889
 from typing import TypedDict
 from dotenv import load_dotenv
 
@@ -10,10 +13,19 @@ from langchain_core.prompts import ChatPromptTemplate
 
 # Import các thành phần nội bộ
 from src.config.settings import AI_MODEL_NAME, AI_REQUEST_TIMEOUT, AI_MAX_STEPS
+<<<<<<< HEAD
 from src.config.prompts import AGENT_MAIN_PROMPT, AGENT_DIACHI_PROMPT
 from src.db.operations import save_conversation, search_faq
 from src.utils.embeddings import get_embeddings_model
 from src.services.search_address import search_address # Sử dụng module search_address đã được tách ra
+=======
+
+from src.config.prompts import AGENT_MAIN_PROMPT, AGENT_DIACHI_PROMPT
+from src.db.operations import save_conversation, search_faq
+from src.utils.embeddings import get_embeddings_model
+from src.services.search_address import search_address
+
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889
 
 
 # AGENT SETUP
@@ -79,6 +91,7 @@ AGENT_TOOLS_LIST ={
         }
     ],
 
+<<<<<<< HEAD
     "agent_diachi": [
         {
             "name": "search_address",
@@ -98,6 +111,24 @@ AGENT_TOOLS_LIST ={
             }
         }
     ]
+=======
+    
+    "agent_diachi": [
+    {
+        "name": "search_address",
+        "description": "Tìm các chi nhánh EMS gần người dùng nhất dựa trên địa chỉ và tọa độ đã lưu trong user_sessions.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "top_n": {
+                    "type": "integer",
+                    "description": "Số lượng chi nhánh gần nhất cần trả về, mặc định là 3"
+                }
+            }
+        }
+    }
+]
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889
 }
 
 def build_tools_list(agent_name: str) -> str:
@@ -143,7 +174,11 @@ def call_agent(state: dict, agent_name: str) -> dict:
         "system_instruction": profile["system_instruction"],
         "query": state.get("query", ""),
         "last_agent_response": state.get("last_agent_response", ""),
+<<<<<<< HEAD
         "tool_observations": "\n".join(state.get("tool_observations", [])),
+=======
+        "tool_observations": "\n".join(state.get("tool_obervations", [])),
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889
         "tools_list": profile["tool_list"]
     })
     state["last_agent_response"] = response.content
@@ -155,6 +190,7 @@ def call_agent(state: dict, agent_name: str) -> dict:
 def call_tool(state: dict) -> dict:
     action_text = state.get("last_agent_response", "")
     agent_name = state.get("last_agent")
+<<<<<<< HEAD
     
     # Tìm Tool Name
     tool_name = None
@@ -184,6 +220,25 @@ def call_tool(state: dict) -> dict:
         msg = f"[Tool '{tool_name}' NOT allowed for {agent_name}]"
         state.setdefault("tool_observations", []).append(msg)
         return state
+=======
+    if "ACTION:" not in action_text:
+        state.setdefault("tool_obervations", []).append(f"[No action found by {agent_name}]")
+        return state
+    tool_name = action_text.split("ACTION:")[1].split("\n")[0].strip()
+    allowed_tools = [tool["name"] for tool in AGENT_TOOLS_LIST.get(agent_name, [])]
+    if tool_name not in allowed_tools:
+        msg = f"[Tool '{tool_name}' NOT allowed for {agent_name}]"
+        state.setdefault("tool_obervations", []).append(msg)
+        return state
+    args = {}
+    if "ARGUMENTS:" in action_text:
+        args_text = action_text.split("ARGUMENTS:")[1].strip()
+        try:
+            args = json.loads(args_text)
+        except:
+            state.setdefault("tool_obervations", []).append("[Failed to parse arguments]")
+            return state
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889
         
     if tool_name == "search_address":
         args["sender_id"] = state.get("sender_id")
@@ -192,6 +247,7 @@ def call_tool(state: dict) -> dict:
 
     tool_func = TOOL_MAPPING.get(tool_name)
     if not tool_func:
+<<<<<<< HEAD
         state.setdefault("tool_observations", []).append("[Unknown tool]")
         return state
     results = tool_func(**args)
@@ -199,14 +255,30 @@ def call_tool(state: dict) -> dict:
         state.setdefault("tool_observations", []).append(f"[{tool_name} results: {results.get('context')}]")
     else:
         state.setdefault("tool_observations", []).append(f"[{tool_name} trả về kết quả không hợp lệ]")
+=======
+        state.setdefault("tool_obervations", []).append("[Unknown tool]")
+        return state
+    results = tool_func(**args)
+    if results and isinstance(results, dict):
+        state.setdefault("tool_obervations", []).append(f"[{tool_name} results: {results.get('context')}]")
+    else:
+        state.setdefault("tool_obervations", []).append(f"[{tool_name} trả về kết quả không hợp lệ]")
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889
     return state
 
 def should_continue(state: dict) -> str:
     if state.get("num_steps", 0) >= AI_MAX_STEPS: return "end"
+<<<<<<< HEAD
     response_upper = state.get("last_agent_response", "").upper()
     if "ANSWER:" in response_upper: return "end"
     if "ACTION:" in response_upper or "TOOL_CODE" in response_upper: return "continue"
     if "HANDOFF:" in response_upper: return "handoff"
+=======
+    response = state.get("last_agent_response", "").upper()
+    if "ANSWER" in response: return "end"
+    if "ACTION" in response: return "continue"
+    if "HANDOFF" in response: return "handoff"
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889
     return "end"
 
 def which_agents(state: dict) -> str:
@@ -217,7 +289,11 @@ class AgentState(TypedDict):
     sender_id: str 
     last_agent_response: str
     last_agent: str
+<<<<<<< HEAD
     tool_observations: list
+=======
+    tool_obervations: list
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889
     num_steps: int
 
 workflow_m = StateGraph(AgentState)
@@ -230,6 +306,7 @@ workflow_m.add_conditional_edges("agent_diachi", should_continue, {"continue": "
 workflow_m.add_conditional_edges("tools", which_agents, {"agent_main": "agent_main", "agent_diachi": "agent_diachi"})
 agentic_graph_m = workflow_m.compile()
 
+<<<<<<< HEAD
 def get_agent_response(user_text: str, sender_id: str, user_context: str = "", max_retries: int = 3) -> str:
     """Gọi AI agent để lấy response"""
     if user_context and user_context.strip():
@@ -245,10 +322,24 @@ def get_agent_response(user_text: str, sender_id: str, user_context: str = "", m
         "num_steps": 0,
     }
     
+=======
+def get_agent_response(user_text: str, sender_id: str, max_retries: int = 3) -> str:
+    print(f"\n[Người dùng hỏi]: {user_text}")
+    agent_state = {
+        "query": user_text,
+        "sender_id": sender_id,
+        "last_agent_response": "",
+        "tool_obervations": [],
+        "num_steps": 0,
+        }
+    
+    import time
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889
     for attempt in range(max_retries):
         try:
             result = agentic_graph_m.invoke(agent_state)
             raw_response = result.get("last_agent_response", "")
+<<<<<<< HEAD
             
             if "ANSWER:" in raw_response:
                 return raw_response.split("ANSWER:")[1].strip().strip('"')
@@ -262,3 +353,14 @@ def get_agent_response(user_text: str, sender_id: str, user_context: str = "", m
             continue
     
     return "Bạn cho bên mình xin SDT nhé, chuyên viên EMS sẽ tư vấn rõ hơn!"
+=======
+            if "ANSWER:" in raw_response:
+                return raw_response.split("ANSWER:")[1].strip().strip('"')
+            return raw_response.strip()
+        except Exception as e:
+            error_str = str(e)
+            print(f"Lỗi khi chạy LangGraph: {e}")
+            break
+    
+    return "Bạn cho bên mình xin SDT nhé, chuyên viên EMS sẽ tư vấn rõ hơn!"
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889

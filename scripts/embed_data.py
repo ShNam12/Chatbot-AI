@@ -22,7 +22,11 @@ def embed_csv_data():
     # Xóa dữ liệu cũ để tránh xung đột dimension (Nếu bạn muốn nạp lại từ đầu)
     print("🧹 Đang làm sạch dữ liệu cũ trong vector_faq...")
     with Session(engine) as session:
+<<<<<<< HEAD
         session.execute(text("TRUNCATE TABLE vector_faq RESTART IDENTITY"))
+=======
+        session.execute(text("TRUNCATE TABLE vector_faq"))
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889
         session.commit()
 
     # 2. Sử dụng Gemini Embeddings từ utils
@@ -30,7 +34,11 @@ def embed_csv_data():
     embeddings_model = get_embeddings_model()
 
     # 3. Đọc dữ liệu từ file master
+<<<<<<< HEAD
     file_path = "src/data/EMS_Fitness_Yoga_DB.csv"
+=======
+    file_path = "src/data/EMS_Knowledge_Master.csv"
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889
     if os.path.exists(file_path):
         print(f"📖 Đang đọc file kiến thức tổng hợp: {file_path}")
         combined_df = pd.read_csv(file_path)
@@ -51,12 +59,21 @@ def embed_csv_data():
     for index, row in combined_df.iterrows():
         category = str(row.get('Category', ''))
         sub_category = str(row.get('Sub_Category', ''))
+<<<<<<< HEAD
         # intent = str(row.get('User_Query_Intent', ''))
         content = str(row.get('Information_Chunk', ''))
         # keywords = str(row.get('Keywords', ''))
 
         # Tạo chuỗi văn bản đầy đủ để AI hiểu ngữ cảnh tốt hơn
         full_text = f"Category: {category} | Sub-Category: {sub_category} | Content: {content}"
+=======
+        intent = str(row.get('User_Query_Intent', ''))
+        content = str(row.get('Information_Chunk', ''))
+        keywords = str(row.get('Keywords', ''))
+
+        # Tạo chuỗi văn bản đầy đủ để AI hiểu ngữ cảnh tốt hơn
+        full_text = f"Category: {category} | Sub-Category: {sub_category} | Intent: {intent} | Content: {content} | Keywords: {keywords}"
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889
         
         print(f"🔄 Đang embedding dòng {index + 1}/{total_records}...")
         
@@ -68,7 +85,13 @@ def embed_csv_data():
             insert_vector_faq(
                 category=category,
                 sub_category=sub_category,
+<<<<<<< HEAD
                 content=content,
+=======
+                intent=intent,
+                content=content,
+                keywords=keywords,
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889
                 embedding=vector
             )
         except Exception as e:

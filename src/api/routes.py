@@ -3,6 +3,7 @@ import requests
 import os
 import re
 from src.services.function_call import get_agent_response
+<<<<<<< HEAD
 # Đã gộp imports từ cả 2 file
 from src.db.operations import (
     save_conversation, should_send_overview, mark_overview_sent, 
@@ -13,6 +14,13 @@ from src.services.ggsheet_service import save_to_sheet
 from src.config.overview_config import OVERVIEW_NESSAGE, IMAGE_OR_VIDEO, OVERVIEW_IMAGE_URL, OVERVIEW_VIDEO_URL
 from src.config.settings import FB_GRAPH_BASE_URL, FB_GRAPH_VERSION
 from src.services.location_memory import handle_location_memory # Module location từ file 2
+=======
+from src.db.operations import save_conversation, should_send_overview, mark_overview_sent
+from src.services.ggsheet_service import save_to_sheet
+from src.config.overview_config import OVERVIEW_NESSAGE, IMAGE_OR_VIDEO, OVERVIEW_IMAGE_URL, OVERVIEW_VIDEO_URL
+from src.config.settings import FB_GRAPH_BASE_URL, FB_GRAPH_VERSION
+from src.services.location_memory import handle_location_memory
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889
 from src.utils.helpers import extract_phone, detect_and_update_interest
 
 from dotenv import load_dotenv
@@ -105,6 +113,7 @@ def process_message(body):
                     print(f"🎯 Interest: {interest_str}")
                     phone = extract_phone(message_text)
 
+<<<<<<< HEAD
                     # 💾 SAVE USER MESSAGE TO DATABASE
                     try:
                         save_user_message(
@@ -120,6 +129,8 @@ def process_message(body):
                     except Exception as e:
                         print(f"❌ [ChatHistory] Lỗi lưu user message: {e}")
 
+=======
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889
                     if phone:
                         print(f"📞 Phát hiện SĐT: {phone}")
                         try:
@@ -132,12 +143,16 @@ def process_message(body):
 
                     send_sender_action(sender_id, "typing_on")
 
+<<<<<<< HEAD
                     # 📍 Ghi nhớ vị trí (Từ File 2)
+=======
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889
                     try:
                         location_result = handle_location_memory(sender_id, message_text)
                         print(f"[Location memory] {location_result}")
                     except Exception as e:
                         print(f"[Location memory] Bỏ qua do lỗi: {e}")
+<<<<<<< HEAD
                     
                     # 🧠 Lấy context lịch sử chat để AI hiểu được hội thoại (Từ File 1)
                     conversation_context = get_conversation_context(sender_id, max_messages=8)
@@ -164,6 +179,13 @@ def process_message(body):
 
                     # Update last bot message time
                     update_last_bot_message_time(sender_id)
+=======
+
+                    ai_reply = get_agent_response(message_text, sender_id)
+                    send_sender_action(sender_id, "typing_off")
+
+                    send_message_to_facebook(sender_id, ai_reply, customer_name)
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889
 
     except Exception as e:
         print(f"❌ Lỗi process_message: {e}")
@@ -207,11 +229,15 @@ def send_message_to_facebook(recipient_id: str, text: str, customer_name: str = 
             print(f"✅ Đã gửi overview trong 24h cho {recipient_id}, bỏ qua overview")
 
         reply_sent = send_text_message(recipient_id, text, customer_name)
+<<<<<<< HEAD
         
         # Đảm bảo record update bot time chạy đúng ở đây nếu reply sent (Từ File 1)
         if reply_sent:
             update_last_bot_message_time(recipient_id)
         else:
+=======
+        if not reply_sent:
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889
             print("❌ Gửi reply AI thất bại")
 
     except Exception as e:

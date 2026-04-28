@@ -61,6 +61,7 @@ POSITIVE_ADDRESS_PATTERNS = [
     "chung cư",
     "tòa",
     "khu đô thị",
+<<<<<<< HEAD
     "gần hoàng ngân",
     "gần cầu giấy",
     "gần láng",
@@ -76,6 +77,8 @@ POSITIVE_ADDRESS_PATTERNS = [
     "hoàn kiếm",
     "tây hồ",
     "hà đông",
+=======
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889
 ]
 
 NEGATIVE_ADDRESS_PATTERNS = [
@@ -106,6 +109,7 @@ HANOI_AREAS = [
 ]
 
 
+<<<<<<< HEAD
 def remove_accents(text: str) -> str:
     """Loại bỏ dấu tiếng Việt."""
     s1 = u'ÀÁÂÃÈÉÊÌÍÒÓÔÕÙÚÝàáâãèéêìíòóôõùúýĂăĐđĨĩŨũƠơƯưẠạẢảẤấẦầẨẩẪẫẬậẮắẰằẲẳẴẵẶặẸẹẺẻẼẽẾếỀềỂểỄễỆệỈỉỊịỌọỎỏỐốỒồỔổỖỗỘộỚớỜờỞởỠỡỢợỤụỦủỨứỪừỬửỮữỰựỲỳỴỵỶỷỸỹ'
@@ -142,10 +146,31 @@ def may_contain_user_address(message_text: str) -> bool:
             words = text.split()
             if len(words) <= 5:
                 return True
+=======
+def may_contain_user_address(message_text: str) -> bool:
+    text = normalize_for_match(message_text)
+
+    if any(pattern in text for pattern in NEGATIVE_ADDRESS_PATTERNS):
+        return False
+
+    if any(pattern in text for pattern in POSITIVE_ADDRESS_PATTERNS):
+        return True
+
+    words = text.split()
+    if len(words) <= 5 and any(area in text for area in HANOI_AREAS):
+        return True
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889
 
     return False
 
 
+<<<<<<< HEAD
+=======
+def normalize_for_match(text: str) -> str:
+    return re.sub(r"\s+", " ", text.lower()).strip()
+
+
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889
 def extract_address_with_llm(message_text: str) -> AddressExtractionResult:
     """Dùng Gemini để tách đúng phần địa chỉ từ tin nhắn."""
     api_key = os.getenv("GOOGLE_API_KEY")
@@ -208,6 +233,7 @@ Tin nhắn: {message_text}
 
 
 def normalize_address(address_text: str) -> str:
+<<<<<<< HEAD
     """Chuẩn hóa địa chỉ tránh bị lặp lại suffix."""
     address = re.sub(r"\s+", " ", address_text).strip(" ,.-")
     
@@ -244,6 +270,54 @@ def text_to_coordinates(address: str, timeout: int = 10):
                 pass
 
     return None
+=======
+    """Chuẩn hóa địa chỉ trước khi gửi Google Geocoding."""
+    address = re.sub(r"\s+", " ", address_text).strip(" ,.-")
+
+    replacements = {
+        " hn": " Hà Nội",
+        " hnoi": " Hà Nội",
+    }
+    lowered = f" {address.lower()} "
+    for old, new in replacements.items():
+        lowered = lowered.replace(old, f" {new.lower()} ")
+
+    address = lowered.strip()
+
+    if "hà nội" not in address.lower():
+        address = f"{address}, Hà Nội"
+
+    if "việt nam" not in address.lower() and "viet nam" not in address.lower():
+        address = f"{address}, Việt Nam"
+
+    return address
+
+
+def text_to_coordinates(address:str, timeout: int = 10):
+    """Chuyển đổi địa điểm của khách thành tọa độ"""
+
+    try:
+        geolocator = Nominatim(user_agent="ems_chatbot_location")
+        location = geolocator.geocode(
+            address,
+            timeout=timeout,
+            exactly_one=True,
+            language="vi",
+            country_codes="vn",
+        )
+
+        if location:
+            return location.latitude, location.longitude
+
+        return None
+
+    except (GeocoderTimedOut, GeocoderServiceError) as e:
+        print(f"Lỗi geocoding: {e}")
+        return None
+    except Exception as e:
+        print(f"Lỗi geocoding không xác định: {e}")
+        return None
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889
 
 def detect_and_extract_address(message_text: str) -> AddressExtractionResult:
     """Nhận diện và tách địa chỉ từ tin nhắn."""

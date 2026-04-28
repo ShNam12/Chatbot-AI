@@ -2,6 +2,7 @@ from typing import List, Optional
 from datetime import datetime, timedelta
 from sqlmodel import Session, select, text
 from .database import engine
+<<<<<<< HEAD
 # Đã gộp toàn bộ models của cả 2 file
 from .models import UserSession, VectorFAQ, EmsBranch, User, Conversation, Message    
 from pgvector.sqlalchemy import Vector
@@ -9,6 +10,11 @@ from pgvector.sqlalchemy import Vector
 from sqlalchemy import cast, func, desc
 
 # ==================== SHARED BASE OPERATIONS ====================
+=======
+from .models import UserSession, VectorFAQ, EmsBranch
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import cast, func
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889
 
 def save_conversation(sender_id: str, page_id: str, message_id: str):
     """Lưu hoặc cập nhật session của người dùng"""
@@ -69,21 +75,34 @@ def search_faq(query_embedding: List[float], limit: int = 2) -> List[str]:
         results = session.exec(statement).all()
         return list(results)
 
+<<<<<<< HEAD
 def insert_vector_faq(category: str, sub_category: str, content: str, embedding: List[float]):
+=======
+def insert_vector_faq(category: str, sub_category: str, intent: str, content: str, keywords: str, embedding: List[float]):
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889
     """Chèn một bản ghi kiến thức mới vào database"""
     with Session(engine) as session:
         faq = VectorFAQ(
             category=category,
             sub_category=sub_category,
+<<<<<<< HEAD
             content=content,
+=======
+            intent=intent,
+            content=content,
+            keywords=keywords,
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889
             embedding=embedding
         )
         session.add(faq)
         session.commit()
 
+<<<<<<< HEAD
 
 # ==================== BRANCH & LOCATION OPERATIONS (From File 1) ====================
 
+=======
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889
 def upsert_branch(code: str, address: str,
                   district: Optional[str] = None, city: Optional[str] = None,
                   is_active: bool = True) -> EmsBranch:
@@ -115,6 +134,10 @@ def upsert_branch(code: str, address: str,
             print(f"➕ [Branch] Đã thêm chi nhánh {code}: {address}")
             return branch
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889
 def get_all_branches() -> list[EmsBranch]:
     """Lấy tất cả chi nhánh đang hoạt động."""
     with Session(engine) as session:
@@ -128,6 +151,10 @@ def update_user_location(sender_id: str,
     lat: float,
     lon: float) -> UserSession:
     """Cập nhật địa chỉ và tọa độ của người dùng trong session."""
+<<<<<<< HEAD
+=======
+
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889
     with Session(engine) as session:
         statement = select(UserSession).where(UserSession.sender_id == sender_id)
         user_session = session.exec(statement).first()
@@ -150,6 +177,10 @@ def update_user_location(sender_id: str,
 
 def get_user_location(sender_id: str ) -> Optional[dict]:
     """Lấy vị trí của người dùng da luu trong session"""
+<<<<<<< HEAD
+=======
+
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889
     with Session(engine) as session:
         statement = select(UserSession).where(UserSession.sender_id == sender_id)
         user_session = session.exec(statement).first()
@@ -170,6 +201,7 @@ def get_user_location(sender_id: str ) -> Optional[dict]:
         }
 
 
+<<<<<<< HEAD
 # ==================== 3-TABLE CHAT HISTORY OPERATIONS (From File 2) ====================
 
 def get_or_create_user(
@@ -639,3 +671,6 @@ def update_last_bot_message_time(sender_id: str):
             session.add(user_session)
             session.commit()
             print(f"✅ [Operations] Updated last bot message time for {sender_id}")
+=======
+    
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889

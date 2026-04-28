@@ -1,6 +1,7 @@
 import sys
 import os
 import re
+<<<<<<< HEAD
 from sqlmodel import Session, select
 
 # Thêm đường dẫn dự án vào PYTHONPATH
@@ -35,6 +36,24 @@ def parse_chinhanh_txt(filepath: str) -> list[dict]:
         print(f"❌ Không tìm thấy file {filepath}")
         return []
 
+=======
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from dotenv import load_dotenv
+load_dotenv()
+
+from src.db.database import init_db
+from src.db.operations import upsert_branch
+
+CHINHANH_FILE = os.path.join(os.path.dirname(__file__), "..", "src", "data", "chinhanh.txt")
+
+def parse_chinhanh_txt(filepath: str) -> list[dict]:
+    """Parse file chinhanh.txt → list[{code, address, district, city}]"""
+    branches = []
+    pattern = re.compile(r"^(CS\d+):\s*(.+)$", re.IGNORECASE)
+
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889
     with open(filepath, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
@@ -44,9 +63,22 @@ def parse_chinhanh_txt(filepath: str) -> list[dict]:
 
             code = m.group(1).strip()
             address = m.group(2).strip().rstrip(". ")
+<<<<<<< HEAD
             parts = [p.strip() for p in address.split("-")]
             district = parts[-2].strip() if len(parts) >= 2 else None
             city = "Quảng Ninh" if "Hạ Long" in address or "Quảng Ninh" in address else "Hà Nội"
+=======
+
+            # Trích xuất quận và thành phố từ địa chỉ
+            parts = [p.strip() for p in address.split("-")]
+            district = parts[-2].strip() if len(parts) >= 2 else None
+            city_raw = parts[-1].strip() if parts else ""
+
+            if "Quảng Ninh" in city_raw:
+                city = "Quảng Ninh"
+            else:
+                city = "Hà Nội"
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889
 
             branches.append({
                 "code": code,
@@ -54,6 +86,7 @@ def parse_chinhanh_txt(filepath: str) -> list[dict]:
                 "district": district,
                 "city": city,
             })
+<<<<<<< HEAD
     return branches
 
 def seed():
@@ -89,6 +122,29 @@ def seed():
                 print(f"✅ Đã nạp {code} | Tọa độ chuẩn: {lat}, {lon}")
 
     print(f"\n✅ Đã đồng bộ 10 chi nhánh vào database!")
+=======
+
+    return branches
+
+
+def seed():
+    print("🌱 Khởi tạo database...")
+    init_db()
+
+    branches = parse_chinhanh_txt(CHINHANH_FILE)
+    print(f"📋 Tìm thấy {len(branches)} chi nhánh\n")
+
+    for b in branches:
+        upsert_branch(
+            code=b["code"],
+            address=b["address"],
+            district=b["district"],
+            city=b["city"],
+        )
+
+    print(f"\n✅ Đã seed {len(branches)} chi nhánh vào bảng ems_branch")
+
+>>>>>>> de0350dfe5ad33ace3850650f6ef67a294602889
 
 if __name__ == "__main__":
     seed()
