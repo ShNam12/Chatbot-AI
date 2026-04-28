@@ -9,14 +9,24 @@ import requests
 
 
 load_dotenv()
- 
 
-def send_facebook_text(recipient_id: str, message_text: str) -> bool:
-    page_access_token = os.getenv("PAGE_ACCESS_TOKEN")
+
+def get_page_access_token(page_id) -> str | None:
+    page_id = str(page_id).strip()
+    env_name = f"PAGE_ACCESS_TOKEN_{page_id}"
+    page_access_token = os.getenv(env_name)
+
     if not page_access_token:
-        print("Missing PAGE_ACCESS_TOKEN in .env")
-        return False
+        print(f"Missing {env_name} in .env")
+        return None
 
+    return page_access_token
+
+def send_facebook_text(
+    recipient_id: str,
+    message_text: str,
+    page_access_token: str,
+) -> bool:
     url = "https://graph.facebook.com/me/messages"
     params = {"access_token": page_access_token}
     payload = {
@@ -42,10 +52,10 @@ def send_facebook_text(recipient_id: str, message_text: str) -> bool:
 def is_missing_phone(phone) -> bool:
     if phone is None:
         return True
+
     return str(phone).strip().upper() in {"", "EMPTY", "NULL"}
 
-
-def get_followup_needed(hours: float = 0.000000000000005) -> list:
+def get_followup_needed(hours: float = 0.000000000000000000000001) -> list:
     query = text("""
         SELECT
             sender_id,
@@ -62,8 +72,9 @@ def get_followup_needed(hours: float = 0.000000000000005) -> list:
     with Session(engine) as db:
         result = db.execute(query, {"hours": hours})
         return result.mappings().all()
-    
-users = get_followup_needed(0.00000000000005)
+
+
+users = get_followup_needed(0.000000000000000000000001)
 
 for user in users:
     sender_id = user["sender_id"]
@@ -72,13 +83,22 @@ for user in users:
     page_id = user["page_id"]
     last_message_time = datetime.now() - user["last_message_time"]
 
-    text_respone_15p = f"""Dạ {sender_name} ơi, chắc mình đang bận chút công việc ạ? Em thấy chị đang quan tâm đến dịch vụ [Gym/Yoga…] bên em. Bên em có lộ trình tập luyện riêng cho mục tiêu tập luyện. Anh/Chị nhắn em số điện thoại, em gửi qua để mình tham khảo trước nhé!"""
+    page_access_token = get_page_access_token(page_id)
+    if not page_access_token:
+        continue
 
-    print(sender_name, phone, last_message_time)
+    text_response_15p = f"""Dạ {sender_name} ơi, Gửi số điện thoại cho tôi"""
 
-    if is_missing_phone(phone) and last_message_time > timedelta(minutes=2):
-        print(f"Follow up with {sender_name} (Page ID: {page_id}) - No phone number, last message was {last_message_time} ago.")
-        send_facebook_text(sender_id, text_respone_15p)
+    if is_missing_phone(phone) and last_message_time > timedelta(minutes=0.000001):
+        print(
+            f"Follow up with {sender_name} "
+            f"(Page ID: {page_id}) - No phone number, "
+            f"last message was {last_message_time} ago."
+        )
 
-    
+        send_facebook_text(
+            recipient_id=sender_id,
+            message_text=text_response_15p,
+            page_access_token=page_access_token,
+        )
 
